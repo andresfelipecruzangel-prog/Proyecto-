@@ -1,0 +1,13 @@
+{
+  "name": "video-ranking-editor",
+  "version": "2.1.0",
+  "description": "Editor de video para rankings Top 5/Top 10 en formato vertical 9:16, con importacion desde TikTok/YouTube/Instagram.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "yt-dlp-exec": "^1.0.2"
+  }
+}
