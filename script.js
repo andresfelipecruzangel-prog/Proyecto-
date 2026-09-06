@@ -3846,6 +3846,15 @@ function drawExportFrame() {
 let exportVideoTrack = null;   // track manual (requestFrame) si está disponible
 let exportStreamEl = null;     // stream (requestFrame legacy en algunos navegadores)
 let exportKeepAlive = null;    // intervalo de respaldo si la pestaña se oculta
+
+// El keep-alive mantiene vivo el track, pero no salva la cadencia: con la pestaña
+// oculta rAF se pausa y los temporizadores quedan limitados a ~1 Hz, así que ese
+// tramo se graba con muy pocos frames. Al terminar ya no se puede recuperar, de modo
+// que al menos se detecta para poder decir por qué salió así.
+let exportWentHidden = false;
+function onExportVisibilityChange() {
+    if (isExporting && document.hidden) exportWentHidden = true;
+}
 let exportLastDraw = -1e9;     // marca de tiempo del último frame dibujado
 
 function pushExportFrame() {
@@ -4310,6 +4319,8 @@ async function startExport() {
     }
     // Keep-alive: mantiene el track de video vivo si la pestaña se oculta (rAF se pausa).
     // El intervalo coincide con la cadencia de frames para no perder beats.
+    exportWentHidden = false;
+    document.addEventListener('visibilitychange', onExportVisibilityChange);
     exportKeepAlive = setInterval(() => {
         if (isExporting && document.hidden) tickExportFrame();
     }, Math.floor(1000 / FPS));
@@ -4445,6 +4456,10 @@ function finishExport() {
         if (t.audioEl) t.audioEl.muted = true;
     });
     document.getElementById('exportOverlay').classList.add('hidden');
+    // La bandera no se limpia aquí: si después llega el informe del servidor vuelve a
+    // pintar el panel y el aviso debe seguir apareciendo. Se limpia al exportar de nuevo.
+    document.removeEventListener('visibilitychange', onExportVisibilityChange);
+    if (exportWentHidden) showValidationReport({ pass: false, checks: [] });
     stopPlayback();
 }
 
@@ -4808,7 +4823,16 @@ async function validateExportedFile(blob, expectedSeconds) {
 function showValidationReport(report) {
     const old = document.getElementById('fpsValidationPanel');
     if (old) old.remove();
-    const checks = report.checks || [];
+    const checks = (report.checks || []).slice();
+    if (exportWentHidden) {
+        checks.unshift({
+            pass: false,
+            name: 'Pestaña en segundo plano',
+            detail: 'El navegador pausó el renderizado mientras la pestaña no estaba visible, ' +
+                    'así que ese tramo quedó con muy pocos frames. Vuelve a exportar dejando ' +
+                    'esta pestaña al frente.'
+        });
+    }
     const div = document.createElement('div');
     div.id = 'fpsValidationPanel';
     div.className = 'fps-validation-panel';
