@@ -4,672 +4,865 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Ranking Editor V2</title>
+    <link rel="stylesheet" href="fonts.css">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-<!-- ====== LEFT PANEL ====== -->
-<div class="panel-left">
-    <div class="panel-header">
-        <span style="font-size:22px">🎬</span>
-        <h1>Video Ranking Editor V2</h1>
-        <div style="margin-left:auto;display:flex;gap:6px">
-            <button class="btn btn-sm" onclick="saveProject()" title="Guardar proyecto">💾</button>
-            <button class="btn btn-sm btn-danger" onclick="clearProject()" title="Borrar proyecto guardado">🗑</button>
-        </div>
-    </div>
+<!-- ====== TOP BAR (Proyecto / Importar / Exportar) ====== -->
+<header class="app-topbar">
+    <span class="app-logo">🎬</span>
+    <h1>Video Ranking Editor <span class="app-ver">V2</span></h1>
+    <div class="topbar-sep"></div>
+    <button class="btn btn-sm" onclick="saveProject()" title="Guardar proyecto">💾 Guardar</button>
+    <button class="btn btn-sm btn-danger" onclick="clearProject()" title="Borrar proyecto guardado">🗑 Borrar</button>
+    <div class="topbar-spacer"></div>
+    <button class="btn btn-sm" onclick="openImportDialog()" title="Importar clip desde archivo o URL">📥 Importar</button>
+    <button class="btn btn-sm btn-primary" onclick="openExportDialog()" title="Exportar el video final">📦 Exportar</button>
+</header>
 
-    <!-- TITLE SECTION -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>📝 Título</h2>
-            <span class="toggle">▼</span>
-        </div>
-        <div class="section-body">
-            <div class="form-row">
-                <label>Fuente</label>
-                <select id="titleFont" onchange="updateTitle()">
-                    <option value="'Segoe UI', Arial, sans-serif">Segoe UI</option>
-                    <option value="Arial, sans-serif">Arial</option>
-                    <option value="Verdana, sans-serif">Verdana</option>
-                    <option value="Impact, sans-serif">Impact</option>
-                    <option value="'Comic Sans MS', cursive">Comic Sans</option>
-                    <option value="'Courier New', monospace">Courier New</option>
-                    <option value="Georgia, serif">Georgia</option>
-                </select>
-            </div>
-            <div class="form-row">
-                <label>Línea 1</label>
-                <input type="text" id="titleLine1" value="Top 5 [Mejores](#FFD700)" oninput="updateTitle()">
-            </div>
-            <div class="form-row">
-                <label>Línea 2</label>
-                <input type="text" id="titleLine2" value="Teléfonos [2024](#FFD700)" oninput="updateTitle()">
-            </div>
-            <div class="form-row">
-                <label>Color Base</label>
-                <input type="color" id="titleTextColor" value="#FFFFFF" oninput="updateTitle()">
-            </div>
-            <div class="form-row">
-                <label>Tamaño</label>
-                <input type="range" id="titleFontSize" min="24" max="120" value="64" oninput="updateTitle()">
-                <span class="range-value" id="titleFontSizeVal">64</span>
-            </div>
-            <p class="hint">Sintaxis color: <code>Texto normal [Palabra](#ff0000)</code></p>
-        </div>
-    </div>
+<!-- ====== MAIN: RAIL DE PESTAÑAS + PANEL CONTEXTUAL + PREVIEW ====== -->
+<div class="app-main">
 
-    <!-- CLIPS SECTION -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>🎞️ Clips</h2>
-            <span class="toggle">▼</span>
-        </div>
-        <div class="section-body" id="clipsBody">
-            <p class="hint" style="margin-bottom:4px">Arrastra archivos de video del PC aquí o usa el botón inferior.</p>
-            <div id="clipsList"></div>
-            <button class="btn btn-primary" onclick="addClip()" style="width:100%; margin-top:8px">
-                ＋ Agregar clip
-            </button>
-        </div>
-    </div>
+    <!-- Rail vertical de pestañas (categorías de edición) -->
+    <nav class="editor-rail" id="editorRail">
+        <button class="rail-btn active" data-tab="media" onclick="switchTab('media')" title="Clips y medios">
+            <span class="rail-icon">🎞️</span><span class="rail-label">Media</span>
+        </button>
+        <button class="rail-btn" data-tab="textos" onclick="switchTab('textos')" title="Título, textos y números">
+            <span class="rail-icon">✏️</span><span class="rail-label">Textos</span>
+        </button>
+        <button class="rail-btn" data-tab="estilo" onclick="switchTab('estilo')" title="Barras, captions y overlay">
+            <span class="rail-icon">🎨</span><span class="rail-label">Estilo</span>
+        </button>
+        <button class="rail-btn" data-tab="estructura" onclick="switchTab('estructura')" title="Introducción y outro">
+            <span class="rail-icon">🎬</span><span class="rail-label">Estructura</span>
+        </button>
+        <button class="rail-btn" data-tab="audio" onclick="switchTab('audio')" title="Voces, efectos y mezclador">
+            <span class="rail-icon">🔊</span><span class="rail-label">Audio</span>
+        </button>
+        <button class="rail-btn" data-tab="efectos" onclick="switchTab('efectos')" title="Momento clave (freeze)">
+            <span class="rail-icon">❄️</span><span class="rail-label">Efectos</span>
+        </button>
+        <button class="rail-btn" data-tab="presets" onclick="switchTab('presets')" title="Presets guardados">
+            <span class="rail-icon">📋</span><span class="rail-label">Presets</span>
+        </button>
+    </nav>
 
-    <!-- INTRO SECTION -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>🎬 Introducción</h2>
-            <span class="toggle">▼</span>
+    <!-- ====== PANEL CONTEXTUAL (según pestaña activa) ====== -->
+    <aside class="panel-left">
+
+        <!-- ═══ PESTAÑA: MEDIA ═══ -->
+        <div class="tab-panel active" data-tab="media">
+
+            <!-- CLIPS SECTION -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>🎞️ Clips</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body" id="clipsBody">
+                    <p class="hint" style="margin-bottom:4px">Arrastra archivos de video del PC aquí, usa el botón inferior o importa desde 📥 Importar (arriba) pegando una URL.</p>
+                    <div id="clipsList"></div>
+                    <button class="btn btn-primary" onclick="addClip()" style="width:100%; margin-top:8px">
+                        ＋ Agregar clip
+                    </button>
+                    <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+                        <button class="btn btn-sm" onclick="analyzeAllClips()" title="Analiza los FPS reales de todos los clips (ffprobe: PTS, VFR, duplicados)">🔬 Analizar FPS</button>
+                        <button class="btn btn-sm" onclick="normalizeAllClips()" title="Convierte a 60 FPS constantes con interpolación de movimiento (ffmpeg/minterpolate)">📈 Normalizar a 60 FPS</button>
+                    </div>
+                    <p class="hint" style="margin-top:6px">El export final es 1080×1920 a <b>60 FPS CFR</b>. Analiza los clips y normaliza los de 24/25/30 fps o VFR: se interpolan con estimación de movimiento en vez de duplicar frames.</p>
+                </div>
+            </div>
         </div>
-        <div class="section-body">
-            <div class="form-row">
-                <label>Activar intro</label>
-                <input type="checkbox" id="introEnabled" onchange="updateIntro()">
+
+        <!-- ═══ PESTAÑA: TEXTOS ═══ -->
+        <div class="tab-panel" data-tab="textos">
+
+            <!-- TITLE SECTION -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>📝 Título</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <div class="form-row">
+                        <label>Fuente</label>
+                        <select id="titleFont" onchange="updateTitle()">
+                            <option value="'Segoe UI', Arial, sans-serif">Segoe UI</option>
+                            <option value="Arial, sans-serif">Arial</option>
+                            <option value="Verdana, sans-serif">Verdana</option>
+                            <option value="Impact, sans-serif">Impact</option>
+                            <option value="'Comic Sans MS', cursive">Comic Sans</option>
+                            <option value="'Courier New', monospace">Courier New</option>
+                            <option value="Georgia, serif">Georgia</option>
+                        </select>
+                    </div>
+                    <div id="titleLinesContainer"></div>
+                    <div class="form-row">
+                        <label></label>
+                        <button type="button" onclick="addTitleLine()">+ Añadir línea</button>
+                    </div>
+                    <div class="form-row">
+                        <label>Color Base</label>
+                        <input type="color" id="titleTextColor" value="#FFFFFF" oninput="updateTitle()">
+                    </div>
+                    <div class="form-row">
+                        <label>Tamaño</label>
+                        <input type="range" id="titleFontSize" min="24" max="120" value="64" oninput="updateTitle()">
+                        <span class="range-value" id="titleFontSizeVal">64</span>
+                    </div>
+                    <p class="hint">Sintaxis color: <code>Texto normal [Palabra](#ff0000)</code></p>
+                </div>
             </div>
-            <div class="form-row">
-                <label>Duración (s)</label>
-                <input type="range" id="introDuration" min="1" max="30" value="5" oninput="updateIntro()">
-                <span class="range-value" id="introDurationVal">5</span>
+
+            <!-- TEXTOS EN PANTALLA -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>📢 Textos en Pantalla</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <p class="hint" style="margin-bottom:4px"><b>Titular principal:</b> aparece en 0:00 y desaparece pasado el tiempo indicado.</p>
+                    <div class="form-row">
+                        <label>Activar</label>
+                        <input type="checkbox" id="scrHeadlineEnabled" onchange="updateScreenTexts()">
+                    </div>
+                    <input type="text" id="scrHeadlineText" placeholder="Titular principal..." style="width:100%" oninput="updateScreenTexts()">
+                    <div class="form-row" style="margin-top:4px">
+                        <label>Duración</label>
+                        <input type="range" id="scrHeadlineDur" min="1" max="10" value="3" oninput="updateScreenTexts()">
+                        <span class="range-value" id="scrHeadlineDurVal">3s</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Fuente</label>
+                        <select id="scrHeadlineFont" onchange="updateScreenTexts()">
+                            <option value="'Segoe UI', Arial, sans-serif">Segoe UI</option>
+                            <option value="Arial, sans-serif">Arial</option>
+                            <option value="Verdana, sans-serif">Verdana</option>
+                            <option value="Impact, sans-serif">Impact</option>
+                            <option value="'Comic Sans MS', cursive">Comic Sans</option>
+                            <option value="Georgia, serif">Georgia</option>
+                        </select>
+                        <label style="min-width:40px">Color</label>
+                        <input type="color" id="scrHeadlineColor" value="#FFFFFF" oninput="updateScreenTexts()">
+                    </div>
+                    <div class="form-row">
+                        <label>Tamaño</label>
+                        <input type="range" id="scrHeadlineSize" min="30" max="160" value="80" oninput="updateScreenTexts()">
+                        <span class="range-value" id="scrHeadlineSizeVal">80</span>
+                        <label style="min-width:40px">Outline</label>
+                        <input type="checkbox" id="scrHeadlineOutline" checked onchange="updateScreenTexts()">
+                    </div>
+                    <hr style="border-color:#2a2a4a;margin:8px 0">
+                    <p class="hint" style="margin-bottom:4px"><b>Pregunta final:</b> para generar comentarios; aparece los últimos segundos del video.</p>
+                    <div class="form-row">
+                        <label>Activar</label>
+                        <input type="checkbox" id="scrEqEnabled" onchange="updateScreenTexts()">
+                    </div>
+                    <input type="text" id="scrEqText" placeholder="¿Cuál es tu favorito? 👇" style="width:100%" oninput="updateScreenTexts()">
+                    <div class="form-row" style="margin-top:4px">
+                        <label>Últimos</label>
+                        <input type="range" id="scrEqLast" min="1" max="15" value="4" oninput="updateScreenTexts()">
+                        <span class="range-value" id="scrEqLastVal">4s</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Fuente</label>
+                        <select id="scrEqFont" onchange="updateScreenTexts()">
+                            <option value="'Segoe UI', Arial, sans-serif">Segoe UI</option>
+                            <option value="Arial, sans-serif">Arial</option>
+                            <option value="Verdana, sans-serif">Verdana</option>
+                            <option value="Impact, sans-serif">Impact</option>
+                            <option value="'Comic Sans MS', cursive">Comic Sans</option>
+                            <option value="Georgia, serif">Georgia</option>
+                        </select>
+                        <label style="min-width:40px">Color</label>
+                        <input type="color" id="scrEqColor" value="#FFFFFF" oninput="updateScreenTexts()">
+                    </div>
+                    <div class="form-row">
+                        <label>Tamaño</label>
+                        <input type="range" id="scrEqSize" min="24" max="140" value="60" oninput="updateScreenTexts()">
+                        <span class="range-value" id="scrEqSizeVal">60</span>
+                        <label style="min-width:40px">Outline</label>
+                        <input type="checkbox" id="scrEqOutline" checked onchange="updateScreenTexts()">
+                    </div>
+                    <p class="hint" style="margin:0">Arrastra cada texto en el canvas para posicionarlo.</p>
+                </div>
             </div>
-            <div class="form-row">
-                <label>Blur (px)</label>
-                <input type="range" id="introBlur" min="0" max="50" value="20" oninput="updateIntro()">
-                <span class="range-value" id="introBlurVal">20</span>
+
+            <!-- NUMBERS SECTION -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>🔢 Fuente Números</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <div class="form-row">
+                        <label>Fuente</label>
+                        <select id="numFont" onchange="updateNumbers()">
+                            <option value="'Segoe UI', Arial, sans-serif">Segoe UI</option>
+                            <option value="Arial, sans-serif">Arial</option>
+                            <option value="Verdana, sans-serif">Verdana</option>
+                            <option value="Impact, sans-serif">Impact</option>
+                            <option value="'Comic Sans MS', cursive">Comic Sans</option>
+                            <option value="'Courier New', monospace">Courier New</option>
+                            <option value="Georgia, serif">Georgia</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label>Mostrar círculo</label>
+                        <input type="checkbox" id="numShowCircle" checked onchange="updateNumbers()">
+                    </div>
+                    <div class="form-row">
+                        <label>Color número</label>
+                        <input type="color" id="numColor" value="#FFD700" oninput="updateNumbers()">
+                    </div>
+                    <div class="form-row">
+                        <label>Outline negro</label>
+                        <input type="checkbox" id="numShowOutline" onchange="updateNumbers()">
+                    </div>
+                    <div class="form-row">
+                        <label>Intensidad outline</label>
+                        <input type="range" id="numOutlineIntensity" min="0" max="100" value="50" oninput="updateNumbers()">
+                        <span class="range-value" id="numOutlineIntensityVal">50</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Tamaño</label>
+                        <input type="range" id="numFontSize" min="16" max="100" value="44" oninput="updateNumbers()">
+                        <span class="range-value" id="numFontSizeVal">44</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Fuente texto</label>
+                        <select id="numTextFont" onchange="updateNumbers()">
+                            <option value="'Segoe UI', Arial, sans-serif">Segoe UI</option>
+                            <option value="Arial, sans-serif">Arial</option>
+                            <option value="Verdana, sans-serif">Verdana</option>
+                            <option value="Impact, sans-serif">Impact</option>
+                            <option value="'Comic Sans MS', cursive">Comic Sans</option>
+                            <option value="'Courier New', monospace">Courier New</option>
+                            <option value="Georgia, serif">Georgia</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label>Tamaño texto</label>
+                        <input type="range" id="numTextSize" min="8" max="100" value="22" oninput="updateNumbers()">
+                        <span class="range-value" id="numTextSizeVal">22</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Outline texto</label>
+                        <input type="checkbox" id="numShowTextOutline" onchange="updateNumbers()">
+                    </div>
+                    <div class="form-row">
+                        <label>Intensidad outline t.</label>
+                        <input type="range" id="numTextOutlineIntensity" min="0" max="100" value="50" oninput="updateNumbers()">
+                        <span class="range-value" id="numTextOutlineIntensityVal">50</span>
+                    </div>
+                    <p class="hint">Los números siempre se ven. El texto personalizado de cada clip aparece solo cuando se reproduce.</p>
+                </div>
             </div>
-            <div class="form-row">
-                <label>Oscurecer</label>
-                <input type="range" id="introOverlay" min="0" max="80" value="40" oninput="updateIntro()">
-                <span class="range-value" id="introOverlayVal">40%</span>
+        </div>
+
+        <!-- ═══ PESTAÑA: ESTILO ═══ -->
+        <div class="tab-panel" data-tab="estilo">
+
+            <!-- BARS SECTION -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>▬ Barras de Color</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <div class="form-row"><label><b>Superior</b></label></div>
+                    <div class="form-row">
+                        <label>Estilo</label>
+                        <select id="barTopStyle" onchange="updateBars()">
+                            <option value="solid">Color sólido</option>
+                            <option value="blur">Borrosa (clip de fondo)</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label>Color</label>
+                        <input type="color" id="barTopColor" value="#FFD700" oninput="updateBars()">
+                        <label style="min-width:40px">Alto</label>
+                        <input type="range" id="barTopHeight" min="0" max="960" value="0" oninput="updateBars()">
+                    </div>
+                    <div class="form-row">
+                        <label>Blur</label>
+                        <input type="range" id="barTopBlur" min="1" max="60" value="20" oninput="updateBars()">
+                        <span class="range-value" id="barTopBlurVal">20</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Oscuridad</label>
+                        <input type="range" id="barTopOverlay" min="0" max="80" value="40" oninput="updateBars()">
+                        <span class="range-value" id="barTopOverlayVal">40%</span>
+                    </div>
+                    <div class="form-row" style="margin-top:10px"><label><b>Inferior</b></label></div>
+                    <div class="form-row">
+                        <label>Estilo</label>
+                        <select id="barBottomStyle" onchange="updateBars()">
+                            <option value="solid">Color sólido</option>
+                            <option value="blur">Borrosa (clip de fondo)</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label>Color</label>
+                        <input type="color" id="barBottomColor" value="#FFD700" oninput="updateBars()">
+                        <label style="min-width:40px">Alto</label>
+                        <input type="range" id="barBottomHeight" min="0" max="100" value="14" oninput="updateBars()">
+                    </div>
+                    <div class="form-row">
+                        <label>Blur</label>
+                        <input type="range" id="barBottomBlur" min="1" max="60" value="20" oninput="updateBars()">
+                        <span class="range-value" id="barBottomBlurVal">20</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Oscuridad</label>
+                        <input type="range" id="barBottomOverlay" min="0" max="80" value="40" oninput="updateBars()">
+                        <span class="range-value" id="barBottomOverlayVal">40%</span>
+                    </div>
+                    <p class="hint">En modo «Borrosa» se ve el clip de fondo desenfocado; el color solo aplica en modo sólido. Blur y oscuridad aplican en modo borroso.</p>
+                </div>
             </div>
-            <div class="form-row">
-                <label>Audio voz</label>
-                <input type="file" accept="audio/*" id="introAudioFile" onchange="handleIntroAudio(this.files[0])" style="font-size:11px">
-                <button class="btn btn-sm btn-danger" onclick="removeIntroAudio()" title="Quitar audio" id="introAudioRemove" style="display:none">✕</button>
+
+            <!-- BLUR BARS SECTION -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>🌫️ Barras Borrosas</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <p class="hint" style="margin-bottom:6px">Barras borrosas del clip seleccionado. Cada clip tiene las suyas. Arrástralas en el canvas o usa los deslizadores.</p>
+                    <button class="btn btn-primary" onclick="addBlurBar()" style="width:100%; margin-bottom:8px">
+                        ＋ Añadir barra borrosa
+                    </button>
+                    <div id="blurBarsList"></div>
+                </div>
             </div>
-            <p class="hint" id="introAudioName" style="margin:0"></p>
-            <div class="captions-section" style="margin-top:8px">
-                <div class="captions-header">
-                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-                        <input type="checkbox" id="introCaptionsEnabled" checked onchange="updateIntro()"> Captions
-                    </label>
-                    <div style="display:flex;gap:6px;align-items:center">
-                        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:#8888aa">
-                            <input type="checkbox" id="introCapBg" checked onchange="updateIntro()"> Fondo
-                        </label>
-                        <button class="btn btn-sm" onclick="addIntroCaption()">+ Fila</button>
-                        <button class="btn btn-sm" onclick="generateIntroAI()" title="Transcribir audio del intro palabra por palabra con IA">🪄 IA</button>
+
+            <!-- CAPTION STYLE SECTION -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>💬 Estilo Captions</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <div class="form-row">
+                        <label>Color texto</label>
+                        <input type="color" id="capColor" value="#FFFFFF" oninput="updateCaptionStyle()">
+                    </div>
+                    <div class="form-row">
+                        <label>Color fondo</label>
+                        <input type="color" id="capBgColor" value="#000000" oninput="updateCaptionStyle()">
+                    </div>
+                    <div class="form-row">
+                        <label>Opacidad</label>
+                        <input type="range" id="capBgOpacity" min="0" max="100" value="60" oninput="updateCaptionStyle()">
+                        <span class="range-value" id="capBgOpacityVal">60%</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Tamaño</label>
+                        <input type="range" id="capFontSize" min="16" max="72" value="36" oninput="updateCaptionStyle()">
+                        <span class="range-value" id="capFontSizeVal">36</span>
                     </div>
                 </div>
-                <div class="form-row" style="margin-top:6px">
-                    <label>Font caption</label>
-                    <select id="introCapFont" onchange="updateIntro()">
-                        <option value="'Segoe UI', sans-serif">Segoe UI</option>
-                        <option value="Arial, sans-serif">Arial</option>
-                        <option value="Verdana, sans-serif">Verdana</option>
-                        <option value="Impact, sans-serif">Impact</option>
-                        <option value="'Comic Sans MS', cursive">Comic Sans</option>
-                        <option value="'Courier New', monospace">Courier New</option>
-                        <option value="Georgia, serif">Georgia</option>
-                    </select>
-                    <label style="min-width:50px">Idioma IA</label>
-                    <select id="introCapLang" onchange="updateIntro()">
-                        <option value="english">Inglés</option>
-                        <option value="spanish">Español</option>
-                        <option value="french">Francés</option>
-                        <option value="german">Alemán</option>
-                        <option value="italian">Italiano</option>
-                        <option value="portuguese">Portugués</option>
-                    </select>
+            </div>
+
+            <!-- YOUTUBE SHORTS OVERLAY SECTION -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>📱 Overlay YouTube Shorts</h2>
+                    <span class="toggle">▼</span>
                 </div>
-                <div class="form-row">
-                    <label>Color caption</label>
-                    <input type="color" id="introCapColor" value="#FFFFFF" oninput="updateIntro()">
-                    <label style="min-width:50px">Tamaño</label>
-                    <input type="range" id="introCapSize" min="16" max="160" value="36" oninput="updateIntro()">
-                    <span class="range-value" id="introCapSizeVal">36</span>
+                <div class="section-body">
+                    <p class="hint" style="margin-bottom:6px">Guía visual de la interfaz de Shorts sobre el preview para evitar tapar texto/elementos importantes. No aparece en la exportación.</p>
+                    <div class="form-row">
+                        <label>Activar</label>
+                        <input type="checkbox" id="shortsOverlayEnabled" onchange="updateShortsOverlay()">
+                    </div>
+                    <div class="form-row">
+                        <label>Opacidad</label>
+                        <input type="range" id="shortsOverlayOpacity" min="0" max="100" value="50" oninput="updateShortsOverlay()">
+                        <span class="range-value" id="shortsOverlayOpacityVal">50%</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Mostrar</label>
+                        <button class="btn btn-sm" id="shortsOverlayHideBtn" onclick="toggleShortsHide()">Ocultar</button>
+                        <span class="hint" style="flex:1;margin:0 0 0 8px">Sin desactivar el overlay</span>
+                    </div>
                 </div>
-                <div class="form-row">
-                    <label>Outline negro</label>
-                    <input type="checkbox" id="introCapOutline" onchange="updateIntro()">
-                    <label style="min-width:50px">Intensidad</label>
-                    <input type="range" id="introCapOutlineInt" min="0" max="100" value="50" oninput="updateIntro()">
-                    <span class="range-value" id="introCapOutlineIntVal">50</span>
+            </div>
+        </div>
+
+        <!-- ═══ PESTAÑA: ESTRUCTURA ═══ -->
+        <div class="tab-panel" data-tab="estructura">
+
+            <!-- INTRO SECTION -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>🎬 Introducción</h2>
+                    <span class="toggle">▼</span>
                 </div>
-                <div id="introCaptionsList"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- NUMBERS SECTION -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>🔢 Fuente Números</h2>
-            <span class="toggle">▼</span>
-        </div>
-        <div class="section-body">
-            <div class="form-row">
-                <label>Fuente</label>
-                <select id="numFont" onchange="updateNumbers()">
-                    <option value="'Segoe UI', Arial, sans-serif">Segoe UI</option>
-                    <option value="Arial, sans-serif">Arial</option>
-                    <option value="Impact, sans-serif">Impact</option>
-                    <option value="'Courier New', monospace">Courier New</option>
-                </select>
-            </div>
-            <div class="form-row">
-                <label>Mostrar círculo</label>
-                <input type="checkbox" id="numShowCircle" checked onchange="updateNumbers()">
-            </div>
-            <div class="form-row">
-                <label>Color número</label>
-                <input type="color" id="numColor" value="#FFD700" oninput="updateNumbers()">
-            </div>
-            <div class="form-row">
-                <label>Outline negro</label>
-                <input type="checkbox" id="numShowOutline" onchange="updateNumbers()">
-            </div>
-            <div class="form-row">
-                <label>Intensidad outline</label>
-                <input type="range" id="numOutlineIntensity" min="0" max="100" value="50" oninput="updateNumbers()">
-                <span class="range-value" id="numOutlineIntensityVal">50</span>
-            </div>
-            <div class="form-row">
-                <label>Tamaño</label>
-                <input type="range" id="numFontSize" min="16" max="100" value="44" oninput="updateNumbers()">
-                <span class="range-value" id="numFontSizeVal">44</span>
-            </div>
-            <div class="form-row">
-                <label>Fuente texto</label>
-                <select id="numTextFont" onchange="updateNumbers()">
-                    <option value="'Segoe UI', Arial, sans-serif">Segoe UI</option>
-                    <option value="Arial, sans-serif">Arial</option>
-                    <option value="Verdana, sans-serif">Verdana</option>
-                    <option value="Impact, sans-serif">Impact</option>
-                    <option value="'Comic Sans MS', cursive">Comic Sans</option>
-                    <option value="'Courier New', monospace">Courier New</option>
-                    <option value="Georgia, serif">Georgia</option>
-                </select>
-            </div>
-            <div class="form-row">
-                <label>Tamaño texto</label>
-                <input type="range" id="numTextSize" min="8" max="100" value="22" oninput="updateNumbers()">
-                <span class="range-value" id="numTextSizeVal">22</span>
-            </div>
-            <div class="form-row">
-                <label>Outline texto</label>
-                <input type="checkbox" id="numShowTextOutline" onchange="updateNumbers()">
-            </div>
-            <div class="form-row">
-                <label>Intensidad outline t.</label>
-                <input type="range" id="numTextOutlineIntensity" min="0" max="100" value="50" oninput="updateNumbers()">
-                <span class="range-value" id="numTextOutlineIntensityVal">50</span>
-            </div>
-            <p class="hint">Los números siempre se ven. El texto personalizado de cada clip aparece solo cuando se reproduce.</p>
-        </div>
-    </div>
-
-    <!-- BARS SECTION -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>▬ Barras de Color</h2>
-            <span class="toggle">▼</span>
-        </div>
-        <div class="section-body">
-            <div class="form-row"><label><b>Superior</b></label></div>
-            <div class="form-row">
-                <label>Estilo</label>
-                <select id="barTopStyle" onchange="updateBars()">
-                    <option value="solid">Color sólido</option>
-                    <option value="blur">Borrosa (clip de fondo)</option>
-                </select>
-            </div>
-            <div class="form-row">
-                <label>Color</label>
-                <input type="color" id="barTopColor" value="#FFD700" oninput="updateBars()">
-                <label style="min-width:40px">Alto</label>
-                <input type="range" id="barTopHeight" min="0" max="960" value="0" oninput="updateBars()">
-            </div>
-            <div class="form-row">
-                <label>Blur</label>
-                <input type="range" id="barTopBlur" min="1" max="60" value="20" oninput="updateBars()">
-                <span class="range-value" id="barTopBlurVal">20</span>
-            </div>
-            <div class="form-row">
-                <label>Oscuridad</label>
-                <input type="range" id="barTopOverlay" min="0" max="80" value="40" oninput="updateBars()">
-                <span class="range-value" id="barTopOverlayVal">40%</span>
-            </div>
-            <div class="form-row" style="margin-top:10px"><label><b>Inferior</b></label></div>
-            <div class="form-row">
-                <label>Estilo</label>
-                <select id="barBottomStyle" onchange="updateBars()">
-                    <option value="solid">Color sólido</option>
-                    <option value="blur">Borrosa (clip de fondo)</option>
-                </select>
-            </div>
-            <div class="form-row">
-                <label>Color</label>
-                <input type="color" id="barBottomColor" value="#FFD700" oninput="updateBars()">
-                <label style="min-width:40px">Alto</label>
-                <input type="range" id="barBottomHeight" min="0" max="100" value="14" oninput="updateBars()">
-            </div>
-            <div class="form-row">
-                <label>Blur</label>
-                <input type="range" id="barBottomBlur" min="1" max="60" value="20" oninput="updateBars()">
-                <span class="range-value" id="barBottomBlurVal">20</span>
-            </div>
-            <div class="form-row">
-                <label>Oscuridad</label>
-                <input type="range" id="barBottomOverlay" min="0" max="80" value="40" oninput="updateBars()">
-                <span class="range-value" id="barBottomOverlayVal">40%</span>
-            </div>
-            <p class="hint">En modo «Borrosa» se ve el clip de fondo desenfocado; el color solo aplica en modo sólido. Blur y oscuridad aplican en modo borroso.</p>
-        </div>
-    </div>
-
-    <!-- BLUR BARS SECTION -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>🌫️ Barras Borrosas</h2>
-            <span class="toggle">▼</span>
-        </div>
-        <div class="section-body">
-            <p class="hint" style="margin-bottom:6px">Barras borrosas del clip seleccionado. Cada clip tiene las suyas. Arrástralas en el canvas o usa los deslizadores.</p>
-            <button class="btn btn-primary" onclick="addBlurBar()" style="width:100%; margin-bottom:8px">
-                ＋ Añadir barra borrosa
-            </button>
-            <div id="blurBarsList"></div>
-        </div>
-    </div>
-
-    <!-- CAPTION STYLE SECTION -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>💬 Estilo Captions</h2>
-            <span class="toggle">▼</span>
-        </div>
-        <div class="section-body">
-            <div class="form-row">
-                <label>Color texto</label>
-                <input type="color" id="capColor" value="#FFFFFF" oninput="updateCaptionStyle()">
-            </div>
-            <div class="form-row">
-                <label>Color fondo</label>
-                <input type="color" id="capBgColor" value="#000000" oninput="updateCaptionStyle()">
-            </div>
-            <div class="form-row">
-                <label>Opacidad</label>
-                <input type="range" id="capBgOpacity" min="0" max="100" value="60" oninput="updateCaptionStyle()">
-                <span class="range-value" id="capBgOpacityVal">60%</span>
-            </div>
-            <div class="form-row">
-                <label>Tamaño</label>
-                <input type="range" id="capFontSize" min="16" max="72" value="36" oninput="updateCaptionStyle()">
-                <span class="range-value" id="capFontSizeVal">36</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- MOMENTO CLAVE / FREEZE FRAMES -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>❄ Momento Clave</h2>
-            <span class="toggle">▼</span>
-        </div>
-        <div class="section-body">
-            <p class="hint" style="margin-bottom:6px">Congela el clip del timeline seleccionado en el momento que elijas, con texto editable encima. Aplica al clip activo.</p>
-            <button class="btn btn-primary" onclick="addFreeze()" style="width:100%; margin-bottom:8px">
-                ＋ Añadir freeze a este clip
-            </button>
-            <div id="freezesList"></div>
-        </div>
-    </div>
-
-    <!-- VOZ EN OFF -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>🎙️ Voz en Off</h2>
-            <span class="toggle">▼</span>
-        </div>
-        <div class="section-body">
-            <div class="form-row">
-                <label>Activar global</label>
-                <input type="checkbox" id="voMasterEnabled" checked onchange="updateVoiceoversEnabled(this.checked)">
-            </div>
-            <p class="hint">Importa la voz de cada clip desde su tarjeta (sección 🎙️ dentro de cada clip). Frase corta de máximo 8 palabras, sincronizada al inicio del clip con offset ajustable. Genera sus captions con el botón 🪄 IA.</p>
-        </div>
-    </div>
-
-    <!-- DISEÑO DE SONIDO -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>🔊 Diseño de Sonido</h2>
-            <span class="toggle">▼</span>
-        </div>
-        <div class="section-body">
-            <p class="hint" style="margin-bottom:4px"><b>Golpe de bajos:</b> suena en el remate (final) de cada clip.</p>
-            <div class="form-row">
-                <label>Activar</label>
-                <input type="checkbox" id="sfx_bass_enable" onchange="updateSoundDesign()">
-            </div>
-            <div class="form-row">
-                <label>Volumen</label>
-                <input type="range" id="sfx_bass_vol" min="0" max="100" value="80" oninput="updateSoundDesign()">
-                <span class="range-value" id="sfx_bass_volval">80%</span>
-            </div>
-            <div class="form-row">
-                <label>Archivo</label>
-                <input type="file" accept="audio/*" id="sfx_bass_file" style="display:none" onchange="handleSfxFile('bass', this.files[0])">
-                <button class="btn btn-sm" onclick="document.getElementById('sfx_bass_file').click()">📁 Importar</button>
-                <button class="btn btn-sm btn-danger" id="sfx_bass_rm" style="display:none" onclick="removeSfxFile('bass')">✕</button>
-            </div>
-            <p class="hint" id="sfx_bass_name" style="margin:0"></p>
-            <hr style="border-color:#2a2a4a;margin:8px 0">
-            <p class="hint" style="margin-bottom:4px"><b>SFX de transición:</b> suena entre cada clip.</p>
-            <div class="form-row">
-                <label>Activar</label>
-                <input type="checkbox" id="sfx_transition_enable" onchange="updateSoundDesign()">
-            </div>
-            <div class="form-row">
-                <label>Volumen</label>
-                <input type="range" id="sfx_transition_vol" min="0" max="100" value="80" oninput="updateSoundDesign()">
-                <span class="range-value" id="sfx_transition_volval">80%</span>
-            </div>
-            <div class="form-row">
-                <label>Archivo</label>
-                <input type="file" accept="audio/*" id="sfx_transition_file" style="display:none" onchange="handleSfxFile('transition', this.files[0])">
-                <button class="btn btn-sm" onclick="document.getElementById('sfx_transition_file').click()">📁 Importar</button>
-                <button class="btn btn-sm btn-danger" id="sfx_transition_rm" style="display:none" onclick="removeSfxFile('transition')">✕</button>
-            </div>
-            <p class="hint" id="sfx_transition_name" style="margin:0"></p>
-            <hr style="border-color:#2a2a4a;margin:8px 0">
-            <p class="hint" style="margin-bottom:4px"><b>Sting revelación #1:</b> suena al iniciar el último clip.</p>
-            <div class="form-row">
-                <label>Activar</label>
-                <input type="checkbox" id="sfx_sting_enable" onchange="updateSoundDesign()">
-            </div>
-            <div class="form-row">
-                <label>Volumen</label>
-                <input type="range" id="sfx_sting_vol" min="0" max="100" value="90" oninput="updateSoundDesign()">
-                <span class="range-value" id="sfx_sting_volval">90%</span>
-            </div>
-            <div class="form-row">
-                <label>Archivo</label>
-                <input type="file" accept="audio/*" id="sfx_sting_file" style="display:none" onchange="handleSfxFile('sting', this.files[0])">
-                <button class="btn btn-sm" onclick="document.getElementById('sfx_sting_file').click()">📁 Importar</button>
-                <button class="btn btn-sm btn-danger" id="sfx_sting_rm" style="display:none" onclick="removeSfxFile('sting')">✕</button>
-            </div>
-            <p class="hint" id="sfx_sting_name" style="margin:0"></p>
-        </div>
-    </div>
-
-    <!-- TEXTOS EN PANTALLA -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>📢 Textos en Pantalla</h2>
-            <span class="toggle">▼</span>
-        </div>
-        <div class="section-body">
-            <p class="hint" style="margin-bottom:4px"><b>Titular principal:</b> aparece en 0:00 y desaparece pasado el tiempo indicado.</p>
-            <div class="form-row">
-                <label>Activar</label>
-                <input type="checkbox" id="scrHeadlineEnabled" onchange="updateScreenTexts()">
-            </div>
-            <input type="text" id="scrHeadlineText" placeholder="Titular principal..." style="width:100%" oninput="updateScreenTexts()">
-            <div class="form-row" style="margin-top:4px">
-                <label>Duración</label>
-                <input type="range" id="scrHeadlineDur" min="1" max="10" value="3" oninput="updateScreenTexts()">
-                <span class="range-value" id="scrHeadlineDurVal">3s</span>
-            </div>
-            <div class="form-row">
-                <label>Fuente</label>
-                <select id="scrHeadlineFont" onchange="updateScreenTexts()">
-                    <option value="'Segoe UI', Arial, sans-serif">Segoe UI</option>
-                    <option value="Arial, sans-serif">Arial</option>
-                    <option value="Verdana, sans-serif">Verdana</option>
-                    <option value="Impact, sans-serif">Impact</option>
-                    <option value="'Comic Sans MS', cursive">Comic Sans</option>
-                    <option value="Georgia, serif">Georgia</option>
-                </select>
-                <label style="min-width:40px">Color</label>
-                <input type="color" id="scrHeadlineColor" value="#FFFFFF" oninput="updateScreenTexts()">
-            </div>
-            <div class="form-row">
-                <label>Tamaño</label>
-                <input type="range" id="scrHeadlineSize" min="30" max="160" value="80" oninput="updateScreenTexts()">
-                <span class="range-value" id="scrHeadlineSizeVal">80</span>
-                <label style="min-width:40px">Outline</label>
-                <input type="checkbox" id="scrHeadlineOutline" checked onchange="updateScreenTexts()">
-            </div>
-            <hr style="border-color:#2a2a4a;margin:8px 0">
-            <p class="hint" style="margin-bottom:4px"><b>Pregunta final:</b> para generar comentarios; aparece los últimos segundos del video.</p>
-            <div class="form-row">
-                <label>Activar</label>
-                <input type="checkbox" id="scrEqEnabled" onchange="updateScreenTexts()">
-            </div>
-            <input type="text" id="scrEqText" placeholder="¿Cuál es tu favorito? 👇" style="width:100%" oninput="updateScreenTexts()">
-            <div class="form-row" style="margin-top:4px">
-                <label>Últimos</label>
-                <input type="range" id="scrEqLast" min="1" max="15" value="4" oninput="updateScreenTexts()">
-                <span class="range-value" id="scrEqLastVal">4s</span>
-            </div>
-            <div class="form-row">
-                <label>Fuente</label>
-                <select id="scrEqFont" onchange="updateScreenTexts()">
-                    <option value="'Segoe UI', Arial, sans-serif">Segoe UI</option>
-                    <option value="Arial, sans-serif">Arial</option>
-                    <option value="Verdana, sans-serif">Verdana</option>
-                    <option value="Impact, sans-serif">Impact</option>
-                    <option value="'Comic Sans MS', cursive">Comic Sans</option>
-                    <option value="Georgia, serif">Georgia</option>
-                </select>
-                <label style="min-width:40px">Color</label>
-                <input type="color" id="scrEqColor" value="#FFFFFF" oninput="updateScreenTexts()">
-            </div>
-            <div class="form-row">
-                <label>Tamaño</label>
-                <input type="range" id="scrEqSize" min="24" max="140" value="60" oninput="updateScreenTexts()">
-                <span class="range-value" id="scrEqSizeVal">60</span>
-                <label style="min-width:40px">Outline</label>
-                <input type="checkbox" id="scrEqOutline" checked onchange="updateScreenTexts()">
-            </div>
-            <p class="hint" style="margin:0">Arrastra cada texto en el canvas para posicionarlo.</p>
-        </div>
-    </div>
-
-    <!-- OUTRO / CTA SUSCRIPCIÓN -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>🔔 Outro / Suscripción</h2>
-            <span class="toggle">▼</span>
-        </div>
-        <div class="section-body">
-            <div class="form-row">
-                <label>Activar outro</label>
-                <input type="checkbox" id="outroEnabled" onchange="updateOutro()">
-            </div>
-            <div class="form-row">
-                <label>Duración</label>
-                <input type="range" id="outroDur" min="2" max="15" value="5" oninput="updateOutro()">
-                <span class="range-value" id="outroDurVal">5s</span>
-            </div>
-            <textarea id="outroCta" rows="2" placeholder="¡Suscríbete para más tops!" style="width:100%" oninput="updateOutro()"></textarea>
-            <div class="form-row" style="margin-top:4px">
-                <label>Fondo</label>
-                <input type="color" id="outroBg" value="#101018" oninput="updateOutro()">
-                <label style="min-width:40px">Texto</label>
-                <input type="color" id="outroTextColor" value="#FFFFFF" oninput="updateOutro()">
-            </div>
-            <div class="form-row">
-                <label>Tamaño</label>
-                <input type="range" id="outroFontSize" min="30" max="150" value="72" oninput="updateOutro()">
-                <span class="range-value" id="outroFontSizeVal">72</span>
-            </div>
-            <hr style="border-color:#2a2a4a;margin:8px 0">
-            <p class="hint" style="margin-bottom:4px"><b>Fondo del outro:</b> elige tu mejor clip como fondo desenfocado.</p>
-            <div class="form-row">
-                <label>Clip fondo</label>
-                <select id="outroBgClip" onchange="updateOutro()" style="max-width:170px"></select>
-            </div>
-            <div class="form-row">
-                <label>Blur</label>
-                <input type="range" id="outroBgBlur" min="1" max="60" value="20" oninput="updateOutro()">
-                <span class="range-value" id="outroBgBlurVal">20</span>
-            </div>
-            <div class="form-row">
-                <label>Oscuridad</label>
-                <input type="range" id="outroBgOverlay" min="0" max="80" value="40" oninput="updateOutro()">
-                <span class="range-value" id="outroBgOverlayVal">40%</span>
-            </div>
-            <hr style="border-color:#2a2a4a;margin:8px 0">
-            <p class="hint" style="margin-bottom:4px"><b>Voz del outro:</b> importa tu audio de voz IA; se reproduce sobre el outro con captions.</p>
-            <div class="form-row">
-                <label>Voz</label>
-                <input type="file" accept="audio/*" id="outroVoiceFile" style="display:none" onchange="handleOutroVoice(this.files[0])">
-                <button class="btn btn-sm" onclick="document.getElementById('outroVoiceFile').click()">📁 Importar voz</button>
-                <button class="btn btn-sm btn-danger" id="outroVoiceRemove" style="display:none" onclick="removeOutroVoice()">✕</button>
-            </div>
-            <p class="hint" id="outroVoiceName" style="margin:0"></p>
-            <div class="captions-section" style="margin-top:8px">
-                <div class="captions-header">
-                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-                        <input type="checkbox" id="outroCapEnabled" checked onchange="updateOutro()"> Captions
-                    </label>
-                    <button class="btn btn-sm" onclick="generateOutroAI()" title="Transcribir la voz del outro con IA">🪄 IA</button>
+                <div class="section-body">
+                    <div class="form-row">
+                        <label>Activar intro</label>
+                        <input type="checkbox" id="introEnabled" onchange="updateIntro()">
+                    </div>
+                    <div class="form-row">
+                        <label>Duración (s)</label>
+                        <input type="range" id="introDuration" min="1" max="30" value="5" oninput="updateIntro()">
+                        <span class="range-value" id="introDurationVal">5</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Blur (px)</label>
+                        <input type="range" id="introBlur" min="0" max="50" value="20" oninput="updateIntro()">
+                        <span class="range-value" id="introBlurVal">20</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Oscurecer</label>
+                        <input type="range" id="introOverlay" min="0" max="80" value="40" oninput="updateIntro()">
+                        <span class="range-value" id="introOverlayVal">40%</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Video fondo</label>
+                        <select id="introBgClip" onchange="updateIntro()" style="flex:1;min-width:0">
+                            <option value="">Automático (primer clip)</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label>Silenciar fondo</label>
+                        <input type="checkbox" id="introBgMuted" onchange="updateIntro()" checked>
+                        <span class="hint" style="flex:1;margin:0 0 0 8px">Desmarca para oír el audio del video de fondo</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Audio voz</label>
+                        <input type="file" accept="audio/*" id="introAudioFile" onchange="handleIntroAudio(this.files[0])" style="font-size:11px">
+                        <button class="btn btn-sm btn-danger" onclick="removeIntroAudio()" title="Quitar audio" id="introAudioRemove" style="display:none">✕</button>
+                    </div>
+                    <p class="hint" id="introAudioName" style="margin:0"></p>
+                    <div class="captions-section" style="margin-top:8px">
+                        <div class="captions-header">
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                                <input type="checkbox" id="introCaptionsEnabled" checked onchange="updateIntro()"> Captions
+                            </label>
+                            <div style="display:flex;gap:6px;align-items:center">
+                                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:#8888aa">
+                                    <input type="checkbox" id="introCapBg" checked onchange="updateIntro()"> Fondo
+                                </label>
+                                <button class="btn btn-sm" onclick="addIntroCaption()">+ Fila</button>
+                                <button class="btn btn-sm" onclick="generateIntroAI()" title="Transcribir audio del intro palabra por palabra con IA">🪄 IA</button>
+                            </div>
+                        </div>
+                        <div class="form-row" style="margin-top:6px">
+                            <label>Font caption</label>
+                            <select id="introCapFont" onchange="updateIntro()">
+                                <option value="'Segoe UI', sans-serif">Segoe UI</option>
+                                <option value="Arial, sans-serif">Arial</option>
+                                <option value="Verdana, sans-serif">Verdana</option>
+                                <option value="Impact, sans-serif">Impact</option>
+                                <option value="'Comic Sans MS', cursive">Comic Sans</option>
+                                <option value="'Courier New', monospace">Courier New</option>
+                                <option value="Georgia, serif">Georgia</option>
+                            </select>
+                            <label style="min-width:50px">Idioma IA</label>
+                            <select id="introCapLang" onchange="updateIntro()">
+                                <option value="english">Inglés</option>
+                                <option value="spanish">Español</option>
+                                <option value="french">Francés</option>
+                                <option value="german">Alemán</option>
+                                <option value="italian">Italiano</option>
+                                <option value="portuguese">Portugués</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label>Color caption</label>
+                            <input type="color" id="introCapColor" value="#FFFFFF" oninput="updateIntro()">
+                            <label style="min-width:50px">Tamaño</label>
+                            <input type="range" id="introCapSize" min="16" max="160" value="36" oninput="updateIntro()">
+                            <span class="range-value" id="introCapSizeVal">36</span>
+                        </div>
+                        <div class="form-row">
+                            <label>Outline negro</label>
+                            <input type="checkbox" id="introCapOutline" onchange="updateIntro()">
+                            <label style="min-width:50px">Intensidad</label>
+                            <input type="range" id="introCapOutlineInt" min="0" max="100" value="50" oninput="updateIntro()">
+                            <span class="range-value" id="introCapOutlineIntVal">50</span>
+                        </div>
+                        <div id="introCaptionsList"></div>
+                    </div>
                 </div>
-                <div class="form-row" style="margin-top:6px">
-                    <label>Font caption</label>
-                    <select id="outroCapFont" onchange="updateOutro()">
-                        <option value="'Segoe UI', sans-serif">Segoe UI</option>
-                        <option value="Arial, sans-serif">Arial</option>
-                        <option value="Verdana, sans-serif">Verdana</option>
-                        <option value="Impact, sans-serif">Impact</option>
-                        <option value="'Comic Sans MS', cursive">Comic Sans</option>
-                    </select>
-                    <label style="min-width:50px">Idioma IA</label>
-                    <select id="outroCapLang" onchange="updateOutro()">
-                        <option value="english">Inglés</option>
-                        <option value="spanish">Español</option>
-                        <option value="french">Francés</option>
-                        <option value="german">Alemán</option>
-                        <option value="italian">Italiano</option>
-                        <option value="portuguese">Portugués</option>
-                    </select>
-                </div>
-                <div class="form-row">
-                    <label>Color caption</label>
-                    <input type="color" id="outroCapColor" value="#FFFFFF" oninput="updateOutro()">
-                    <label style="min-width:50px">Tamaño</label>
-                    <input type="range" id="outroCapSize" min="16" max="120" value="36" oninput="updateOutro()">
-                    <span class="range-value" id="outroCapSizeVal">36</span>
-                </div>
-                <div id="outroCaptionsList"></div>
-                <p class="hint" style="margin:0">Arrastra las captions en el canvas (vista previa del outro al final del timeline).</p>
             </div>
+
+            <!-- OUTRO / CTA SUSCRIPCIÓN -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>🔔 Outro / Suscripción</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <div class="form-row">
+                        <label>Activar outro</label>
+                        <input type="checkbox" id="outroEnabled" onchange="updateOutro()">
+                    </div>
+                    <div class="form-row">
+                        <label>Duración</label>
+                        <input type="range" id="outroDur" min="2" max="15" value="5" oninput="updateOutro()">
+                        <span class="range-value" id="outroDurVal">5s</span>
+                    </div>
+                    <textarea id="outroCta" rows="2" placeholder="¡Suscríbete para más tops!" style="width:100%" oninput="updateOutro()"></textarea>
+                    <div class="form-row" style="margin-top:4px">
+                        <label>Fondo</label>
+                        <input type="color" id="outroBg" value="#101018" oninput="updateOutro()">
+                        <label style="min-width:40px">Texto</label>
+                        <input type="color" id="outroTextColor" value="#FFFFFF" oninput="updateOutro()">
+                    </div>
+                    <div class="form-row">
+                        <label>Tamaño</label>
+                        <input type="range" id="outroFontSize" min="30" max="150" value="72" oninput="updateOutro()">
+                        <span class="range-value" id="outroFontSizeVal">72</span>
+                    </div>
+                    <hr style="border-color:#2a2a4a;margin:8px 0">
+                    <p class="hint" style="margin-bottom:4px"><b>Fondo del outro:</b> elige tu mejor clip como fondo desenfocado.</p>
+                    <div class="form-row">
+                        <label>Clip fondo</label>
+                        <select id="outroBgClip" onchange="updateOutro()" style="max-width:170px"></select>
+                    </div>
+                    <div class="form-row">
+                        <label>Blur</label>
+                        <input type="range" id="outroBgBlur" min="1" max="60" value="20" oninput="updateOutro()">
+                        <span class="range-value" id="outroBgBlurVal">20</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Oscuridad</label>
+                        <input type="range" id="outroBgOverlay" min="0" max="80" value="40" oninput="updateOutro()">
+                        <span class="range-value" id="outroBgOverlayVal">40%</span>
+                    </div>
+                    <hr style="border-color:#2a2a4a;margin:8px 0">
+                    <p class="hint" style="margin-bottom:4px"><b>Voz del outro:</b> importa tu audio de voz IA; se reproduce sobre el outro con captions.</p>
+                    <div class="form-row">
+                        <label>Voz</label>
+                        <input type="file" accept="audio/*" id="outroVoiceFile" style="display:none" onchange="handleOutroVoice(this.files[0])">
+                        <button class="btn btn-sm" onclick="document.getElementById('outroVoiceFile').click()">📁 Importar voz</button>
+                        <button class="btn btn-sm btn-danger" id="outroVoiceRemove" style="display:none" onclick="removeOutroVoice()">✕</button>
+                    </div>
+                    <p class="hint" id="outroVoiceName" style="margin:0"></p>
+                    <div class="captions-section" style="margin-top:8px">
+                        <div class="captions-header">
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                                <input type="checkbox" id="outroCapEnabled" checked onchange="updateOutro()"> Captions
+                            </label>
+                            <button class="btn btn-sm" onclick="generateOutroAI()" title="Transcribir la voz del outro con IA">🪄 IA</button>
+                        </div>
+                        <div class="form-row" style="margin-top:6px">
+                            <label>Font caption</label>
+                            <select id="outroCapFont" onchange="updateOutro()">
+                                <option value="'Segoe UI', sans-serif">Segoe UI</option>
+                                <option value="Arial, sans-serif">Arial</option>
+                                <option value="Verdana, sans-serif">Verdana</option>
+                                <option value="Impact, sans-serif">Impact</option>
+                                <option value="'Comic Sans MS', cursive">Comic Sans</option>
+                            </select>
+                            <label style="min-width:50px">Idioma IA</label>
+                            <select id="outroCapLang" onchange="updateOutro()">
+                                <option value="english">Inglés</option>
+                                <option value="spanish">Español</option>
+                                <option value="french">Francés</option>
+                                <option value="german">Alemán</option>
+                                <option value="italian">Italiano</option>
+                                <option value="portuguese">Portugués</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label>Color caption</label>
+                            <input type="color" id="outroCapColor" value="#FFFFFF" oninput="updateOutro()">
+                            <label style="min-width:50px">Tamaño</label>
+                            <input type="range" id="outroCapSize" min="16" max="120" value="36" oninput="updateOutro()">
+                            <span class="range-value" id="outroCapSizeVal">36</span>
+                        </div>
+                        <div id="outroCaptionsList"></div>
+                        <p class="hint" style="margin:0">Arrastra las captions en el canvas (vista previa del outro al final del timeline).</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ PESTAÑA: AUDIO ═══ -->
+        <div class="tab-panel" data-tab="audio">
+
+            <!-- VOZ EN OFF -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>🎙️ Voz en Off</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <div class="form-row">
+                        <label>Activar global</label>
+                        <input type="checkbox" id="voMasterEnabled" checked onchange="updateVoiceoversEnabled(this.checked)">
+                    </div>
+                    <p class="hint">Importa la voz de cada clip desde su tarjeta (sección 🎙️ dentro de cada clip). Frase corta de máximo 8 palabras, sincronizada al inicio del clip con offset ajustable. Genera sus captions con el botón 🪄 IA.</p>
+                </div>
+            </div>
+
+            <!-- DISEÑO DE SONIDO -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>🔊 Diseño de Sonido</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <p class="hint" style="margin-bottom:4px"><b>Golpe de bajos:</b> suena en el remate (final) de cada clip.</p>
+                    <div class="form-row">
+                        <label>Activar</label>
+                        <input type="checkbox" id="sfx_bass_enable" onchange="updateSoundDesign()">
+                    </div>
+                    <div class="form-row">
+                        <label>Volumen</label>
+                        <input type="range" id="sfx_bass_vol" min="0" max="100" value="80" oninput="updateSoundDesign()">
+                        <span class="range-value" id="sfx_bass_volval">80%</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Archivo</label>
+                        <input type="file" accept="audio/*" id="sfx_bass_file" style="display:none" onchange="handleSfxFile('bass', this.files[0])">
+                        <button class="btn btn-sm" onclick="document.getElementById('sfx_bass_file').click()">📁 Importar</button>
+                        <button class="btn btn-sm btn-danger" id="sfx_bass_rm" style="display:none" onclick="removeSfxFile('bass')">✕</button>
+                    </div>
+                    <p class="hint" id="sfx_bass_name" style="margin:0"></p>
+                    <hr style="border-color:#2a2a4a;margin:8px 0">
+                    <p class="hint" style="margin-bottom:4px"><b>SFX de transición:</b> suena entre cada clip.</p>
+                    <div class="form-row">
+                        <label>Activar</label>
+                        <input type="checkbox" id="sfx_transition_enable" onchange="updateSoundDesign()">
+                    </div>
+                    <div class="form-row">
+                        <label>Volumen</label>
+                        <input type="range" id="sfx_transition_vol" min="0" max="100" value="80" oninput="updateSoundDesign()">
+                        <span class="range-value" id="sfx_transition_volval">80%</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Archivo</label>
+                        <input type="file" accept="audio/*" id="sfx_transition_file" style="display:none" onchange="handleSfxFile('transition', this.files[0])">
+                        <button class="btn btn-sm" onclick="document.getElementById('sfx_transition_file').click()">📁 Importar</button>
+                        <button class="btn btn-sm btn-danger" id="sfx_transition_rm" style="display:none" onclick="removeSfxFile('transition')">✕</button>
+                    </div>
+                    <p class="hint" id="sfx_transition_name" style="margin:0"></p>
+                    <hr style="border-color:#2a2a4a;margin:8px 0">
+                    <p class="hint" style="margin-bottom:4px"><b>Sting revelación #1:</b> suena al iniciar el último clip.</p>
+                    <div class="form-row">
+                        <label>Activar</label>
+                        <input type="checkbox" id="sfx_sting_enable" onchange="updateSoundDesign()">
+                    </div>
+                    <div class="form-row">
+                        <label>Volumen</label>
+                        <input type="range" id="sfx_sting_vol" min="0" max="100" value="90" oninput="updateSoundDesign()">
+                        <span class="range-value" id="sfx_sting_volval">90%</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Archivo</label>
+                        <input type="file" accept="audio/*" id="sfx_sting_file" style="display:none" onchange="handleSfxFile('sting', this.files[0])">
+                        <button class="btn btn-sm" onclick="document.getElementById('sfx_sting_file').click()">📁 Importar</button>
+                        <button class="btn btn-sm btn-danger" id="sfx_sting_rm" style="display:none" onclick="removeSfxFile('sting')">✕</button>
+                    </div>
+                    <p class="hint" id="sfx_sting_name" style="margin:0"></p>
+                </div>
+            </div>
+
+            <!-- AUDIO MIXER SECTION -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>🎚️ Mezclador de Audio</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <p class="hint" style="margin-bottom:6px">Lista de todos los audios del proyecto (música, voces, efectos). Ajusta el volumen de cada uno con el deslizador.</p>
+                    <div id="audioMixerList"></div>
+                </div>
+            </div>
+
+            <!-- CENSURA DE MALAS PALABRAS -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>🤬 Censura de palabras</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <p class="hint" style="margin-bottom:4px">Detecta malas palabras <b>en inglés</b> con la IA local y las tapa con tu audio de censura (beep). Se aplica al audio de los clips y a las voces en off.</p>
+                    <div class="form-row">
+                        <label>Activar censura</label>
+                        <input type="checkbox" id="censorEnabled" onchange="updateCensor()">
+                    </div>
+                    <div class="form-row">
+                        <label>Audio censura</label>
+                        <input type="file" accept="audio/*" id="censorBleepFile" style="display:none" onchange="handleBleepFile(this.files[0])">
+                        <button class="btn btn-sm" onclick="document.getElementById('censorBleepFile').click()">📁 Importar</button>
+                        <button class="btn btn-sm btn-danger" id="censorBleepRemove" style="display:none" onclick="removeBleepFile()">✕</button>
+                    </div>
+                    <p class="hint" id="censorBleepName" style="margin:0"></p>
+                    <div class="form-row">
+                        <label>Volumen beep</label>
+                        <input type="range" id="censorBleepVol" min="0" max="100" value="90" oninput="updateCensor()">
+                        <span class="range-value" id="censorBleepVolVal">90%</span>
+                    </div>
+                    <div class="form-row">
+                        <label>Palabras</label>
+                        <textarea id="censorWords" rows="4" style="flex:1;min-width:0;font-size:11px" placeholder="Lista de palabras en inglés, separadas por comas" oninput="updateCensorWords(this.value)"></textarea>
+                    </div>
+                    <p class="hint" style="margin:0">Detecta con el botón 🪄 de la sección 🤬 dentro de cada clip. Cada palabra detectada se puede <b>excluir</b> si la IA se equivocó, o añadir marcas manuales de tiempo.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ PESTAÑA: EFECTOS ═══ -->
+        <div class="tab-panel" data-tab="efectos">
+
+            <!-- MOMENTO CLAVE / FREEZE FRAMES -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>❄ Momento Clave</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <p class="hint" style="margin-bottom:6px">Congela el clip del timeline seleccionado en el momento que elijas, con texto editable encima. Aplica al clip activo.</p>
+                    <button class="btn btn-primary" onclick="addFreeze()" style="width:100%; margin-bottom:8px">
+                        ＋ Añadir freeze a este clip
+                    </button>
+                    <div id="freezesList"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ PESTAÑA: PRESETS ═══ -->
+        <div class="tab-panel" data-tab="presets">
+
+            <!-- PRESETS SECTION -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>📋 Presets</h2>
+                    <span class="toggle">▼</span>
+                </div>
+                <div class="section-body">
+                    <div class="form-row">
+                        <input type="text" id="presetNameInput" placeholder="Nombre del preset" style="flex:1;min-width:0" onkeydown="if(event.key==='Enter'){savePresetFromInput();}">
+                        <button class="btn btn-sm btn-primary" onclick="savePresetFromInput()">💾 Guardar</button>
+                    </div>
+                    <div id="presetsList"></div>
+                    <p class="hint">Guarda la configuración visual (título, números, barras, captions, intro) para reutilizarla en nuevos videos.</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ====== PREVIEW + TIMELINE (columna derecha, como antes) ====== -->
+    <main class="panel-right">
+        <div class="preview-area">
+            <canvas id="previewCanvas" width="405" height="720"></canvas>
+        </div>
+
+        <section class="timeline-bar">
+    <div class="tl-toolbar">
+        <button class="btn btn-sm" id="btnPlay" onclick="togglePlay()">▶ Play</button>
+        <button class="btn btn-sm" id="btnStop" onclick="stopPlayback()" title="Detener">⏹</button>
+        <span class="time-display" id="timeDisplay">00:00 / 00:00</span>
+        <div style="flex:1"></div>
+        <input type="file" accept="audio/*" id="audioTrackFile" style="display:none" onchange="addAudioTrack(this.files[0])">
+        <button class="btn btn-sm" onclick="document.getElementById('audioTrackFile').click()">＋ Audio</button>
+        <button class="btn btn-sm" onclick="splitSelectedTl()" title="Dividir el elemento seleccionado en el playhead (S)">✂ Dividir</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteSelectedTl()" title="Eliminar elemento seleccionado (Supr)">🗑</button>
+    </div>
+    <div class="tl-main">
+        <div class="tl-left">
+            <div class="tl-corner"></div>
+            <div class="tl-label tl-lbl-video"><span>🎞️ Vídeo</span></div>
+            <div class="tl-label tl-lbl-audio"><span>🎵 Audio</span></div>
+            <div class="tl-label tl-lbl-fx"><span>✨ FX</span></div>
+            <div class="tl-flex"></div>
+        </div>
+        <div class="tl-right">
+            <div class="tl-scroll" id="tlScroll">
+                <div class="tl-inner" id="tlInner">
+                    <div class="tl-track tl-track-video" id="trackVideo"></div>
+                    <div class="tl-track tl-track-audio" id="trackAudio"></div>
+                    <div class="tl-track tl-track-fx" id="trackFx"></div>
+                    <div class="tl-playhead" id="tlPlayhead"><div class="tl-ph-cap"></div></div>
+                </div>
+            </div>
+            <canvas class="tl-ruler" id="tlRuler" height="20"></canvas>
         </div>
     </div>
+    <div class="tl-zoombar">
+        <button class="btn btn-sm" onclick="zoomTimeline(1/1.5)" title="Alejar">−</button>
+        <input type="range" id="tlZoomRange" min="6" max="240" value="24" style="width:90px" oninput="setZoom(parseInt(this.value))" title="Zoom de la línea de tiempo">
+        <button class="btn btn-sm" onclick="zoomTimeline(1.5)" title="Acercar">＋</button>
+        <button class="btn btn-sm" onclick="fitZoomTimeline()" title="Ajustar todo el proyecto">⤢</button>
+    </div>
+    </section>
+    </main>
+</div>
 
-    <!-- PRESETS SECTION -->
-    <div class="section">
-        <div class="section-header" onclick="toggleSection(this)">
-            <h2>📋 Presets</h2>
-            <span class="toggle">▼</span>
+<!-- ====== DIÁLOGOS / OVERLAYS (a pantalla completa) ====== -->
+
+<!-- Diálogo Exportar -->
+<div class="overlay-screen hidden" id="exportDialog">
+    <div class="tl-dialog">
+        <h3>📦 Exportar video</h3>
+        <p class="hint">Elige el formato de salida y pulsa exportar.</p>
+        <div class="form-row">
+            <label>Formato</label>
+            <select id="exportFormat">
+                <option value="mp4">MP4 (H.264) · Recomendado</option>
+                <option value="webm">WebM (VP9)</option>
+            </select>
         </div>
-        <div class="section-body">
-            <div class="form-row">
-                <input type="text" id="presetNameInput" placeholder="Nombre del preset" style="flex:1;min-width:0" onkeydown="if(event.key==='Enter'){savePresetFromInput();}">
-                <button class="btn btn-sm btn-primary" onclick="savePresetFromInput()">💾 Guardar</button>
-            </div>
-            <div id="presetsList"></div>
-            <p class="hint">Guarda la configuración visual (título, números, barras, captions, intro) para reutilizarla en nuevos videos.</p>
+        <p class="hint" id="exportFormatHint" style="min-height:14px"></p>
+        <p class="hint">💡 Mantén esta pestaña visible durante la exportación: si la ocultas, el navegador pausa la captura y el video pierde fluidez.</p>
+        <div class="tl-dialog-actions">
+            <button class="btn" onclick="closeExportDialog()">Cancelar</button>
+            <button class="btn btn-primary" onclick="closeExportDialog(); startExport()">Exportar a 1080×1920</button>
         </div>
     </div>
 </div>
 
-<!-- ====== RIGHT PANEL ====== -->
-<div class="panel-right">
-    <div class="canvas-wrapper">
-        <canvas id="previewCanvas" width="405" height="720"></canvas>
-    </div>
-
-    <div class="controls-bar">
-        <button class="btn" id="btnPlay" onclick="togglePlay()">▶ Play</button>
-        <button class="btn" id="btnStop" onclick="stopPlayback()">⏹ Stop</button>
-        <span class="time-display" id="timeDisplay">00:00 / 00:00</span>
-    </div>
-
-    <div class="timeline-bar">
-        <div class="timeline-lanes">
-            <div class="timeline-lane">
-                <div class="timeline-lane-label">🎵 Audio</div>
-                <div class="timeline-lane-track" id="audioLaneTrack">
-                    <div class="timeline-audio-clips" id="audioClips"></div>
-                </div>
-            </div>
-            <div class="timeline-lane">
-                <div class="timeline-lane-label">🎞️ Video</div>
-                <div class="timeline-track" id="timelineTrack">
-                    <div class="timeline-clips" id="timelineClips"></div>
-                    <div class="timeline-progress" id="timelineProgress"></div>
-                    <div class="timeline-handle" id="timelineHandle"></div>
-                </div>
-            </div>
+<!-- Diálogo Importar -->
+<div class="overlay-screen hidden" id="importDialog">
+    <div class="tl-dialog">
+        <h3>📥 Importar clip</h3>
+        <div class="form-row">
+            <label>Archivo</label>
+            <input type="file" accept="video/*" id="importFileInput" onchange="if(this.files[0]){handleOSFileUpload(this.files[0]); closeImportDialog(); this.value='';}" style="font-size:11px">
         </div>
-        <div class="timeline-audio-bar">
-            <input type="file" accept="audio/*" id="audioTrackFile" style="display:none" onchange="addAudioTrack(this.files[0])">
-            <button class="btn btn-sm" onclick="document.getElementById('audioTrackFile').click()">＋ Añadir audio</button>
-            <span class="timeline-hint">Arrastra los audios para reposicionar · arrastra los bordes para recortar</span>
+        <div class="form-row">
+            <label>URL</label>
+            <input type="text" id="importUrlInput" placeholder="Pega URL de TikTok/YouTube/Instagram" onkeydown="if(event.key==='Enter'){importFromDialog();}">
+        </div>
+        <p class="hint" id="importDialogStatus" style="min-height:14px"></p>
+        <div class="tl-dialog-actions">
+            <button class="btn" onclick="closeImportDialog()">Cerrar</button>
+            <button class="btn btn-primary" onclick="importFromDialog()">📥 Importar URL</button>
         </div>
     </div>
+</div>
 
-    <div class="export-bar">
-        <select id="exportFormat">
-            <option value="webm">WebM (VP9)</option>
-            <option value="mp4">MP4 (H.264 Fallback)</option>
-        </select>
-        <button class="btn btn-primary" id="btnExport" onclick="startExport()">📦 Exportar a 1080x1920</button>
-    </div>
+<!-- AI Overlay -->
+<div class="overlay-screen hidden" id="aiOverlay">
+    <h3>🪄 IA Trabajando...</h3>
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="aiProgress" style="width:0%"></div></div>
+    <span class="progress-text" id="aiStatusText">Inicializando modelo local...</span>
+    <button class="btn btn-danger" onclick="document.getElementById('aiOverlay').classList.add('hidden')">Ocultar/Cancelar</button>
+</div>
 
-    <p class="hint" style="text-align:center">Arrastra el Título 1, Título 2, los Números, las Barras Borrosas o el Video de fondo para encuadrarlos.</p>
-
-    <!-- AI Overlay -->
-    <div class="overlay-screen hidden" id="aiOverlay">
-        <h3>🪄 IA Trabajando...</h3>
-        <div class="progress-bar-bg"><div class="progress-bar-fill" id="aiProgress" style="width:0%"></div></div>
-        <span class="progress-text" id="aiStatusText">Inicializando modelo local...</span>
-        <button class="btn btn-danger" onclick="document.getElementById('aiOverlay').classList.add('hidden')">Ocultar/Cancelar</button>
-    </div>
-
-    <!-- Export Overlay -->
-    <div class="overlay-screen hidden" id="exportOverlay">
-        <h3>⏳ Exportando video...</h3>
-        <div class="progress-bar-bg"><div class="progress-bar-fill" id="exportProgress" style="width:0%"></div></div>
-        <span class="progress-text" id="exportProgressText">0%</span>
-        <button class="btn btn-danger" onclick="cancelExport()">Cancelar</button>
-    </div>
+<!-- Export Overlay -->
+<div class="overlay-screen hidden" id="exportOverlay">
+    <h3>⏳ Exportando video...</h3>
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="exportProgress" style="width:0%"></div></div>
+    <span class="progress-text" id="exportProgressText">0%</span>
+    <button class="btn btn-danger" onclick="cancelExport()">Cancelar</button>
 </div>
 
 <div id="videoContainer" style="display:none"></div>
 
+<!-- Muxer MP4 para la exportación con WebCodecs (calidad superior). Si falla la carga,
+     la app sigue funcionando con la ruta de exportación clásica (MediaRecorder). -->
+<script src="node_modules/mp4-muxer/build/mp4-muxer.js"
+        onerror="console.warn('mp4-muxer no disponible: exportación WebCodecs desactivada')"></script>
 <script src="script.js"></script>
 </body>
 </html>

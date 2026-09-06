@@ -1,0 +1,45 @@
+/* ═══════════════════════════════════════════════════════════
+   Fuentes del editor de video
+   - Las gratuitas de Google Fonts se cargan vía @import.
+   - La mayoría del resto se cargan desde CDNFonts (woff) bajo demanda:
+     el navegador solo descarga la fuente cuando se usa en pantalla/canvas.
+   - Integral CF, Doctor G y Amston NO están en el CDN: requieren el
+     archivo local en /fonts/<slug>.woff2 o .ttf (colócalos a mano).
+   - font-display: swap evita bloqueos visuales durante la carga.
+   ═══════════════════════════════════════════════════════════ */
+
+/* Google Fonts: Bangers, Bebas Neue, Rubik, Work Sans, Philosopher, Prata */
+@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Bebas+Neue&family=Philosopher:ital,wght@0,400;0,700;1,400;1,700&family=Prata&family=Rubik:ital,wght@0,400;0,500;0,700;1,400&family=Work+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
+/* ─── Popular & General Purpose ─── */
+@font-face { font-family: 'Lemon Milk';  src: url('https://fonts.cdnfonts.com/s/35897/LemonMilkRegular-X3XE2.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Komika Axis'; src: url('https://fonts.cdnfonts.com/s/251/KOMIKAX_.woff') format('woff'); font-display: swap; }
+/* Integral CF: no en CDN — colocar archivo local */
+@font-face { font-family: 'Integral CF'; src: url('fonts/integral-cf.woff2') format('woff2'), url('fonts/integral-cf.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Fast Hand';   src: url('https://fonts.cdnfonts.com/s/47323/FastHand-lgBMV.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Chopstick';  src: url('https://fonts.cdnfonts.com/s/140099/Chopsticks-6RrqM.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Cartoonist'; src: url('https://fonts.cdnfonts.com/s/24496/cartoonist_kooky.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Bouncy';     src: url('https://fonts.cdnfonts.com/s/42540/BOUNCY.woff') format('woff'); font-display: swap; }
+
+/* ─── Standard & Utility ─── */
+@font-face { font-family: 'American Captain'; src: url('https://fonts.cdnfonts.com/s/13747/American Captain.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Freshman';         src: url('https://fonts.cdnfonts.com/s/2128/Freshman.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Heavitas';         src: url('https://fonts.cdnfonts.com/s/16800/Heavitas.woff') format('woff'); font-display: swap; }
+/* Doctor G: no en CDN — colocar archivo local */
+@font-face { font-family: 'Doctor G'; src: url('fonts/doctor-g.woff2') format('woff2'), url('fonts/doctor-g.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Adelia';           src: url('https://fonts.cdnfonts.com/s/17912/ADELIA.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Night Machine';    src: url('https://fonts.cdnfonts.com/s/71927/Night Machine.woff') format('woff'); font-display: swap; }
+@font-face { font-family: '28 Days Later';    src: url('https://fonts.cdnfonts.com/s/3015/28 Days Later.woff') format('woff'); font-display: swap; }
+/* Amston: no en CDN — colocar archivo local */
+@font-face { font-family: 'Amston'; src: url('fonts/amston.woff2') format('woff2'), url('fonts/amston.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Avenir Next';      src: url('https://fonts.cdnfonts.com/s/127747/AvenirNext.woff') format('woff'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Avenir Next';      src: url('https://fonts.cdnfonts.com/s/127747/AvenirNextBold.woff') format('woff'); font-weight: 700; font-display: swap; }
+@font-face { font-family: 'Malvie';           src: url('https://fonts.cdnfonts.com/s/20916/Malvie.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Hunters';          src: url('https://fonts.cdnfonts.com/s/16333/Hunters.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Billion Dreams';   src: url('https://fonts.cdnfonts.com/s/40599/BillionDreams_PERSONAL.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Beyond The Mountains'; src: url('https://fonts.cdnfonts.com/s/14654/beyond_the_mountains.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Coolvetica';       src: url('https://fonts.cdnfonts.com/s/13277/coolvetica.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Metropolis';       src: url('https://fonts.cdnfonts.com/s/4581/METRN___.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Okta';             src: url('https://fonts.cdnfonts.com/s/31846/Okta-ExtraLight.woff') format('woff'); font-weight: 200; font-display: swap; }
+@font-face { font-family: 'Okta';             src: url('https://fonts.cdnfonts.com/s/31846/Okta-BoldItalic.woff') format('woff'); font-weight: 700; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Vogue';            src: url('https://fonts.cdnfonts.com/s/16351/Vogue.woff') format('woff'); font-display: swap; }

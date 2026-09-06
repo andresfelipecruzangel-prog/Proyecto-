@@ -11,6 +11,10 @@ Permite montar un video de ranking a partir de varios clips cortos, con títulos
 ## Características principales
 
 - **Importación desde URL**: pega un enlace de TikTok (también YouTube, Instagram, etc.) y el video se descarga y aparece como clip, gracias al servidor local con yt-dlp.
+- **Endpoints FPS del servidor local** (requieren FFmpeg/FFprobe en el PATH):
+  - `POST /api/analyze` — informe por clip: FPS reales, VFR, duplicados, timestamps.
+  - `POST /api/normalize?base=<fps>` — aterriza a CFR y/o interpola hasta 60 fps.
+  - `POST /api/validate` — veredicto del render final.
 - **Importación de clips**: arrastra videos desde el PC al navegador o úsalos mediante el botón de subida.
 - **Orden y recorte**: cambia el orden de los clips y define el inicio/fin de cada uno.
 - **Recorte visual en timeline**: selecciona un clip y arrastra sus handles laterales para ajustar Trim In/Trim Out en tiempo real, con una duración mínima de 0,5 segundos.
@@ -29,7 +33,8 @@ Permite montar un video de ranking a partir de varios clips cortos, con títulos
 - **Posicionamiento visual**: arrastra el título, los números (de forma individual o todos juntos) y el propio video sobre el canvas para encuadrarlos.
 - **Línea de tiempo interactiva**: adelanta o retrocede por todo el montaje haciendo clic y arrastrando.
 - **Persistencia local**: guarda automáticamente el proyecto (incluyendo los archivos de video y audios de voz/SFX) en **IndexedDB**, para que no pierdas el trabajo al cerrar el navegador o el servidor local.
-- **Exportación**: renderiza el video final a 1080×1920 en formato **WebM (VP9)** o **MP4 (H.264)** si el navegador lo soporta.
+- **Análisis y normalización de FPS (60 CFR)**: el servidor local usa **FFmpeg/FFprobe** para detectar los FPS reales de cada clip por sus PTS (no solo metadatos), VFR, timestamps rotos y frames duplicados (mpdecimate). Los clips de 24/25/30 fps se convierten a 60 FPS con **interpolación de movimiento (minterpolate)** en vez de duplicar frames; los ya a 60 CFR no se reprocesan. Tras exportar, el render se valida automáticamente (60 fps, CFR, duración, duplicados, sync A/V).
+- **Exportación**: renderiza el video final a 1080×1920 en formato **MP4 (H.264)** con **WebCodecs** cuando el navegador lo soporta (codificación por hardware, 60 fps constantes, máxima calidad), con fallback automático a **WebM (VP9)** vía MediaRecorder.
 
 ## Cómo usarlo
 
@@ -45,10 +50,10 @@ Permite montar un video de ranking a partir de varios clips cortos, con títulos
 4. Pulsa **Agregar clip** y, dentro de la tarjeta del clip, importa el video de cualquiera de estas formas:
    - Pega una URL de **TikTok / YouTube / Instagram** en el campo **Pega URL de TikTok...** y pulsa **📥 URL**.
    - Arrastra archivos de video sobre la ventana o pulsa **Subir video**.
-5. Configura el título, los números, las barras de color y los subtítulos desde el panel izquierdo.
-6. Previsualiza el resultado en el canvas central.
-7. El proyecto se guarda automáticamente en el navegador; también puedes usar 💾 para forzar el guardado o 🗑 para borrarlo.
-8. Cuando esté listo, pulsa **Exportar a 1080×1920** y espera a que termine la renderización.
+5. Configura la edición desde el panel izquierdo, organizado en **pestañas por categoría** (estilo editor de video): 🎞️ **Media** (clips), ✏️ **Textos** (título, textos en pantalla, números), 🎨 **Estilo** (barras, captions, overlay Shorts), 🎬 **Estructura** (intro y outro), 🔊 **Audio** (voz en off, sonido, mezclador, censura), ❄️ **Efectos** (momento clave) y 📋 **Presets**. La pestaña activa se recuerda entre sesiones.
+6. Previsualiza el resultado en el canvas central (se ajusta automáticamente al espacio disponible).
+7. El proyecto se guarda automáticamente en el navegador; también puedes usar 💾 Guardar o 🗑 Borrar en la barra superior.
+8. Cuando esté listo, pulsa **📦 Exportar** (barra superior) y espera a que termine la renderización.
 
 ## Requisitos
 

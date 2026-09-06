@@ -6,7 +6,104 @@ const EXPORT_H = 1920;
 const PREVIEW_W = 405;
 const PREVIEW_H = 720;
 const SCALE = PREVIEW_W / EXPORT_W;
-const FPS = 30;
+const FPS = 60; // Cadencia de exportación: igual que la preview (dibuja en cada rAF)
+
+// ═══════════════════════════════════════════════════════════
+// ████  FUENTES ADICIONALES  ████
+// ═══════════════════════════════════════════════════════════
+const EXTRA_FONT_GROUPS = [
+    { label: 'Popular & General Purpose', fonts: [
+        { v: "'Lemon Milk'",  t: 'Lemon Milk' },
+        { v: 'Bangers',        t: 'Bangers' },
+        { v: "'Komika Axis'", t: 'Komika Axis' },
+        { v: "'Integral CF'", t: 'Integral CF' },
+        { v: "'Fast Hand'",  t: 'Fast Hand' },
+        { v: 'Chopstick',     t: 'Chopstick' },
+        { v: 'Cartoonist',    t: 'Cartoonist' },
+        { v: 'Bouncy',        t: 'Bouncy' }
+    ]},
+    { label: 'Standard & Utility', fonts: [
+        { v: "'American Captain'",      t: 'American Captain' },
+        { v: 'Freshman',                t: 'Freshman' },
+        { v: "'Bebas Neue'",            t: 'Bebas Neue' },
+        { v: 'Heavitas',                t: 'Heavitas' },
+        { v: "'Doctor G'",              t: 'Doctor G' },
+        { v: 'Adelia',                  t: 'Adelia' },
+        { v: "'Night Machine'",         t: 'Night Machine' },
+        { v: "'28 Days Later'",         t: '28 Days Later' },
+        { v: 'Amston',                  t: 'Amston' },
+        { v: "'Avenir Next'",          t: 'Avenir Next' },
+        { v: 'Malvie',                  t: 'Malvie' },
+        { v: 'Hunters',                 t: 'Hunters' },
+        { v: "'Billion Dreams'",       t: 'Billion Dreams' },
+        { v: "'Beyond The Mountains'", t: 'Beyond The Mountains' },
+        { v: 'Coolvetica',              t: 'Coolvetica' },
+        { v: 'Metropolis',              t: 'Metropolis' },
+        { v: 'Okta',                    t: 'Okta' },
+        { v: 'Rubik',                   t: 'Rubik' },
+        { v: "'Work Sans'",            t: 'Work Sans' },
+        { v: 'Philosopher',             t: 'Philosopher' },
+        { v: 'Prata',                   t: 'Prata' },
+        { v: 'Vogue',                   t: 'Vogue' }
+    ]}
+];
+
+// Lista plana valor→texto para selects dinámicos (VO, freeze, título por línea)
+const EXTRA_FONTS_FLAT = EXTRA_FONT_GROUPS.flatMap(g => g.fonts);
+
+function appendExtraFonts(sel, currentValue) {
+    if (!sel) return;
+    if (sel.dataset.extraFonts === '1') {
+        if (currentValue) try { sel.value = currentValue; } catch(e) {}
+        return;
+    }
+    sel.dataset.extraFonts = '1';
+    EXTRA_FONT_GROUPS.forEach(g => {
+        const og = document.createElement('optgroup');
+        og.label = g.label;
+        g.fonts.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.v; opt.textContent = f.t;
+            og.appendChild(opt);
+        });
+        sel.appendChild(og);
+    });
+    if (currentValue) try { sel.value = currentValue; } catch(e) {}
+}
+
+// Poblar los selects estáticos del HTML con las nuevas fuentes (antes de syncUIFromState)
+['titleFont','introCapFont','numFont','numTextFont','scrHeadlineFont','scrEqFont','outroCapFont'].forEach(id => {
+    appendExtraFonts(document.getElementById(id));
+});
+
+// Reúne las familias de fuente realmente usadas en el proyecto y espera a que carguen
+async function preloadUsedFonts() {
+    try {
+        const used = new Set();
+        const push = (f) => { if (f && typeof f === 'string') used.add(f); };
+        push(state.title.font);
+        (state.title.lineFonts || []).forEach(push);
+        push(state.numbers.font);
+        push(state.numbers.textFont);
+        push(state.intro && state.intro.captionFont);
+        push(state.outro && state.outro.captionFont);
+        if (state.screenTexts) {
+            push(state.screenTexts.headline && state.screenTexts.headline.font);
+            push(state.screenTexts.endQuestion && state.screenTexts.endQuestion.font);
+        }
+        state.clips.forEach(c => {
+            if (c.vo && c.vo.capFont) push(c.vo.capFont);
+            (c.freezes || []).forEach(ff => push(ff.font));
+        });
+        // Solo cargar las que estén registradas como @font-face / Google (evita descargar las no usadas)
+        const known = EXTRA_FONTS_FLAT.map(f => f.v);
+        await Promise.all([...used].filter(f => known.includes(f)).map(f =>
+            document.fonts.load(`16px ${f}`)
+        ));
+        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    } catch(e) { console.warn('preloadUsedFonts', e); }
+}
+
 
 // Polyfill: roundRect for older browsers
 if (!CanvasRenderingContext2D.prototype.roundRect) {
@@ -24,10 +121,19 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
     };
 }
 
+// Lista base de malas palabras en inglés (editable desde la UI; separadas por comas)
+const DEFAULT_CENSOR_WORDS = [
+    'ass', 'asshole', 'arse', 'arsehole', 'bastard', 'bitch', 'bollocks', 'bugger',
+    'bullshit', 'cock', 'crap', 'cunt', 'damn', 'damned', 'dick', 'dickhead',
+    'douche', 'douchebag', 'dumbass', 'fag', 'faggot', 'fuck', 'fucked', 'fucker',
+    'fuckin', 'fucking', 'goddamn', 'goddamned', 'jackass', 'motherfucker',
+    'motherfucking', 'nigga', 'nigger', 'piss', 'pissed', 'prick', 'pussy',
+    'shit', 'shits', 'shitty', 'slut', 'twat', 'wanker', 'whore'
+];
+
 let state = {
     title: {
-        line1: 'Top 5 [Mejores](#FFD700)',
-        line2: 'Teléfonos [2024](#FFD700)',
+        lines: ['Top 5 [Mejores](#FFD700)', 'Teléfonos [2024](#FFD700)'],
         font: "'Segoe UI', Arial, sans-serif",
         textColor: '#FFFFFF',
         fontSize: 64
@@ -49,8 +155,10 @@ let state = {
     barTop: { color: '#FFD700', height: 0, style: 'solid', blur: 20, overlay: 40 },
     barBottom: { color: '#FFD700', height: 14, style: 'solid', blur: 20, overlay: 40 },
     layout: {
-        title1Pos: { x: 540, y: 150 },
-        title2Pos: { x: 540, y: 240 },
+        titlePos: [
+            { x: 540, y: 150 },
+            { x: 540, y: 240 }
+        ],
         numberPos: { x: 82, y: 960 }
     },
     intro: {
@@ -58,6 +166,8 @@ let state = {
         duration: 5,
         blurAmount: 20,
         overlayOpacity: 0.4,
+        bgClipId: null,
+        bgMuted: true,
         audioUrl: '',
         captions: [],
         captionsEnabled: true,
@@ -112,15 +222,28 @@ let state = {
         captionPos: { x: 0.5, y: 0.78 },
         captionLanguage: 'spanish'
     },
+    shortsOverlay: {
+        enabled: false,
+        opacity: 0.5,
+        visible: true
+    },
+    censor: {
+        enabled: false,
+        bleepFileName: '',
+        bleepVolume: 0.9,
+        words: DEFAULT_CENSOR_WORDS.slice()
+    },
     timelineScaleDuration: 0
 };
 
 let currentClipIndex = 0;
 let isPlaying = false;
 let isExporting = false;
+let isPreparingClip = false;
 let clipIdCounter = 0;
 let audioTrackIdCounter = 0;
 let blurBarIdCounter = 0;
+let freezeIdCounter = 0;
 let isInIntro = false;
 let introStartTime = 0;
 let introAudioEl = null;
@@ -130,6 +253,9 @@ let isInOutro = false;
 let outroStartTime = 0;
 let outroVoiceEl = null;
 let sfxEls = {};              // kind -> Audio element ('bass' | 'transition' | 'sting')
+let bleepEl = null;           // Audio del beep de censura (archivo importado por el usuario)
+let bleepActiveKey = null;    // clave de la marca que está sonando ahora (evita re-disparos)
+let censorMarkSeq = 0;        // contador para ids de marcas de censura
 const sfxKeys = { bass: 'sfx_bass', transition: 'sfx_transition', sting: 'sfx_sting' };
 let freezeRuntime = {};       // freezeId -> { startedAt, done }
 let sfxFired = { bassIdx: -1, transIdx: -1, stingIdx: -1 };
@@ -139,8 +265,57 @@ let sfxFired = { bassIdx: -1, transIdx: -1, stingIdx: -1 };
 let numberPosTemplate = [];
 
 // Bounding boxes for canvas hit-testing
-let title1BBox = null;
-let title2BBox = null;
+let titleBBoxes = []; // bounding box por línea de título
+
+// Migración desde proyectos antiguos (line1/line2 + title1Pos/title2Pos) al formato de N líneas
+function migrateTitleState() {
+    if (!Array.isArray(state.title.lines)) {
+        state.title.lines = [state.title.line1 ?? '', state.title.line2 ?? ''];
+        delete state.title.line1;
+        delete state.title.line2;
+    }
+    if (!Array.isArray(state.layout.titlePos)) {
+        state.layout.titlePos = [];
+        if (state.layout.title1Pos) state.layout.titlePos[0] = state.layout.title1Pos;
+        if (state.layout.title2Pos) state.layout.titlePos[1] = state.layout.title2Pos;
+        delete state.layout.title1Pos;
+        delete state.layout.title2Pos;
+    }
+    ensureTitlePositions();
+}
+function ensureTitlePositions() {
+    while (state.layout.titlePos.length < state.title.lines.length) {
+        const last = state.layout.titlePos[state.layout.titlePos.length - 1] || { x: 540, y: 60 };
+        state.layout.titlePos.push({ x: last.x, y: last.y + 90 });
+    }
+    state.layout.titlePos.length = Math.max(state.title.lines.length, 0);
+    if (state.layout.titlePos.length === 0) state.layout.titlePos.push({ x: 540, y: 150 });
+    if (!Array.isArray(state.title.lineFonts)) state.title.lineFonts = [];
+    if (!Array.isArray(state.title.lineSizes)) state.title.lineSizes = [];
+    while (state.title.lineFonts.length < state.title.lines.length) state.title.lineFonts.push('');
+    while (state.title.lineSizes.length < state.title.lines.length) state.title.lineSizes.push(null);
+    state.title.lineFonts.length = state.title.lines.length;
+    state.title.lineSizes.length = state.title.lines.length;
+}
+function getTitlePos(i) {
+    ensureTitlePositions();
+    return state.layout.titlePos[i] || state.layout.titlePos[0];
+}
+function getTitleLineFont(i) {
+    ensureTitlePositions();
+    return state.title.lineFonts[i] || state.title.font;
+}
+function getTitleLineSize(i) {
+    ensureTitlePositions();
+    const s = state.title.lineSizes[i];
+    return (typeof s === 'number' && s > 0) ? s : state.title.fontSize;
+}
+function hitTitleIndex(mx, my) {
+    for (let i = 0; i < titleBBoxes.length; i++) {
+        if (hitTest(mx, my, titleBBoxes[i])) return i;
+    }
+    return -1;
+}
 let numberBBox = null;
 let numberBBoxes = []; // individual number hit boxes
 let introCaptionBBox = null;
@@ -149,9 +324,10 @@ let headlineBBox = null;
 let endQuestionBBox = null;
 let outroCaptionBBox = null;
 let voCaptionBBox = null;
+let clipCaptionsBBox = null;
 let freezeTextBBoxes = [];
 
-let dragging = null; // 'title1' | 'title2' | 'number' | 'video' | 'introCaption' | 'blurBar' | 'freezeText_N' | 'headline' | 'endQuestion' | 'outroCaption' | null
+let dragging = null; // 'title1' | 'title2' | 'number' | 'video' | 'introCaption' | 'blurBar' | 'freezeText_N' | 'headline' | 'endQuestion' | 'outroCaption' | 'voCaption' | 'clipCaption' | null
 let dragOffset = { x: 0, y: 0 };
 let dragStartPan = { x: 0, y: 0 };
 
@@ -161,14 +337,19 @@ const ctx = canvas.getContext('2d');
 const clipsList = document.getElementById('clipsList');
 const videoContainer = document.getElementById('videoContainer');
 
-// Timeline references
-const timelineTrack = document.getElementById('timelineTrack');
-const timelineClips = document.getElementById('timelineClips');
-const timelineProgress = document.getElementById('timelineProgress');
-const timelineHandle = document.getElementById('timelineHandle');
-let isDraggingTimeline = false;
-let activeTrimDrag = null;
-let isDraggingPlayback = false;
+// Timeline Pro references
+const tlScroll = document.getElementById('tlScroll');
+const tlInner = document.getElementById('tlInner');
+const tlRulerCanvas = document.getElementById('tlRuler');
+const tlPlayheadEl = document.getElementById('tlPlayhead');
+const trackVideoEl = document.getElementById('trackVideo');
+const trackAudioEl = document.getElementById('trackAudio');
+const trackFxEl = document.getElementById('trackFx');
+let tlPxPerSec = 24;                 // zoom: píxeles por segundo
+let tlSelection = null;              // {type:'clip'|'audio'|'vo', id}
+let isDraggingTimeline = false;      // arrastrando playhead
+let activeTrimDrag = null;           // recorte en curso
+let tlDrag = null;                   // arrastre unificado de bloques
 
 // ═══════════════════════════════════════════════════════════
 // ████  PERSISTENCE (IndexedDB)  ████
@@ -257,6 +438,8 @@ async function saveProject() {
             barTop: state.barTop,
             barBottom: state.barBottom,
             layout: state.layout,
+            shortsOverlay: state.shortsOverlay,
+            censor: (function(c){ const x = { ...c }; delete x._file; return x; })(state.censor),
             timelineScaleDuration: state.timelineScaleDuration,
             currentClipIndex,
             clipIdCounter,
@@ -267,6 +450,8 @@ async function saveProject() {
                 duration: state.intro.duration,
                 blurAmount: state.intro.blurAmount,
                 overlayOpacity: state.intro.overlayOpacity,
+                bgClipId: state.intro.bgClipId,
+                bgMuted: state.intro.bgMuted !== false,
                 audioUrl: state.intro.audioUrl,
                 captions: state.intro.captions,
                 captionsEnabled: state.intro.captionsEnabled,
@@ -289,6 +474,7 @@ async function saveProject() {
                 captionsEnabled: c.captionsEnabled,
                 numberText: c.numberText,
                 numberColor: c.numberColor,
+                numberVisible: c.numberVisible !== false,
                 rankingPosition: c.rankingPosition,
                 numberPos: c.numberPos,
                 timelineStart: c.timelineStart,
@@ -297,6 +483,8 @@ async function saveProject() {
                 volume: c.volume,
                 blurBars: c.blurBars || [],
                 freezes: c.freezes || [],
+                censorMarks: c.censorMarks || [],
+                captionPos: c.captionPos || null,
                 vo: c.vo ? {
                     enabled: c.vo.enabled,
                     text: c.vo.text,
@@ -312,6 +500,7 @@ async function saveProject() {
                     capOutlineColor: c.vo.capOutlineColor,
                     capOutlineIntensity: c.vo.capOutlineIntensity,
                     capWords: c.vo.capWords,
+                    censorMarks: c.vo.censorMarks || [],
                     hasAudio: !!c.vo._file
                 } : null,
                 fileName: c.file ? c.file.name : '',
@@ -375,6 +564,12 @@ async function saveProject() {
             }
         }
 
+        // Save censor bleep file
+        if (state.censor._file) {
+            const buffer = await state.censor._file.arrayBuffer();
+            await putItem(STORE_VIDEOS, 'censor_bleep', { name: state.censor._file.name, type: state.censor._file.type, buffer });
+        }
+
         // Save outro voice file
         if (state.outro._voiceFile) {
             const buffer = await state.outro._voiceFile.arrayBuffer();
@@ -407,11 +602,19 @@ async function loadProject() {
         state.barBottom = Object.assign({ color: '#FFD700', height: 14, style: 'solid', blur: 20, overlay: 40 }, saved.barBottom || {});
         blurBarIdCounter = saved.blurBarIdCounter || 0;
         state.layout = saved.layout || state.layout;
+        state.shortsOverlay = Object.assign({ enabled:false, opacity:0.5, visible:true }, saved.shortsOverlay || {});
+        state.censor = Object.assign({
+            enabled: false, bleepFileName: '', bleepVolume: 0.9,
+            words: DEFAULT_CENSOR_WORDS.slice()
+        }, saved.censor || {});
+        state.censor._file = null;
         if (saved.intro) {
             state.intro.enabled = saved.intro.enabled ?? false;
             state.intro.duration = saved.intro.duration ?? 5;
             state.intro.blurAmount = saved.intro.blurAmount ?? 20;
             state.intro.overlayOpacity = saved.intro.overlayOpacity ?? 0.4;
+            state.intro.bgClipId = saved.intro.bgClipId || null;
+            state.intro.bgMuted = saved.intro.bgMuted !== false;
             state.intro.audioUrl = saved.intro.audioUrl || '';
             state.intro.captions = saved.intro.captions || [];
             state.intro.captionsEnabled = saved.intro.captionsEnabled !== false;
@@ -428,7 +631,7 @@ async function loadProject() {
         currentClipIndex = saved.currentClipIndex || 0;
         clipIdCounter = saved.clipIdCounter || 0;
         audioTrackIdCounter = saved.audioTrackIdCounter || 0;
-        freezeIdCounter = saved.freezeIdCounter || 0;
+        freezeIdCounter = saved.freezeIdCounter || state.freezeIdCounter || 0;
         numberPosTemplate = Array.isArray(saved.numberPositionsTemplate) ? saved.numberPositionsTemplate : [];
         state.voiceoversEnabled = saved.voiceoversEnabled !== false;
         if (saved.soundDesign) {
@@ -462,8 +665,10 @@ async function loadProject() {
                 percentage: savedClip.percentage || '',
                 captions: savedClip.captions || [],
                 captionsEnabled: savedClip.captionsEnabled !== false,
+                captionPos: savedClip.captionPos || null,
                 numberText: savedClip.numberText || '',
-                numberColor: savedClip.numberColor || '#FFD700',
+                numberVisible: savedClip.numberVisible !== false,
+                numberColor: savedClip.numberColor || '',
                 rankingPosition: savedClip.rankingPosition || '',
                 numberPos: savedClip.numberPos || null,
                 timelineStart: Number.isFinite(savedClip.timelineStart) ? savedClip.timelineStart : null,
@@ -472,6 +677,7 @@ async function loadProject() {
                 volume: savedClip.volume ?? 1.0,
                 blurBars: savedClip.blurBars || [],
                 freezes: savedClip.freezes || [],
+                censorMarks: savedClip.censorMarks || [],
                 vo: null
             };
 
@@ -491,6 +697,7 @@ async function loadProject() {
                     capOutlineColor: savedClip.vo.capOutlineColor || '#000000',
                     capOutlineIntensity: savedClip.vo.capOutlineIntensity ?? 40,
                     capWords: savedClip.vo.capWords ?? 3,
+                    censorMarks: savedClip.vo.censorMarks || [],
                     _file: null,
                     audioEl: null
                 };
@@ -515,14 +722,20 @@ async function loadProject() {
                     videoContainer.appendChild(video);
                     clip.videoEl = video;
                     video.addEventListener('loadedmetadata', () => {
-                        clip.duration = video.duration;
-                        if (clip.trimEnd === 0) clip.trimEnd = Math.round(video.duration * 100) / 100;
+                        clip.duration = isFinite(video.duration) ? video.duration : 0;
+                        if (clip.trimEnd === 0 && clip.duration > 0) clip.trimEnd = Math.round(video.duration * 100) / 100;
                         renderClipsList();
                         drawFrame();
                     });
                 }
             }
             state.clips.push(clip);
+        }
+
+        // Migración: versiones antiguas horneaban '#FFD700' en cada clip, bloqueando el color global.
+        // Si TODOS los clips tienen el valor por defecto, limpiarlo para que mande state.numbers.color.
+        if (state.clips.length > 0 && state.clips.every(c => c.numberColor === '#FFD700')) {
+            state.clips.forEach(c => { c.numberColor = ''; });
         }
         repackTimelineClips();
 
@@ -582,6 +795,24 @@ async function loadProject() {
                 cfg._file = new File([blob], savedSfx.name || kind + '.mp3', { type: savedSfx.type || 'audio/mpeg' });
                 attachSfxEl(kind);
             }
+        }
+
+        // Restore censor bleep file
+        if (state.censor.bleepFileName) {
+            const savedBleep = await getItem(STORE_VIDEOS, 'censor_bleep');
+            if (savedBleep && savedBleep.buffer) {
+                const blob = new Blob([savedBleep.buffer], { type: savedBleep.type || 'audio/mpeg' });
+                state.censor._file = new File([blob], savedBleep.name || 'bleep.mp3', { type: savedBleep.type || 'audio/mpeg' });
+                attachBleepEl();
+            }
+        }
+
+        // Restore clip thumbnails
+        for (const clip of state.clips) {
+            try {
+                const savedThumbs = await getItem(STORE_VIDEOS, 'thumbs_' + clip.id);
+                if (savedThumbs && savedThumbs.img) clip.thumbs = [savedThumbs.img];
+            } catch (err) {}
         }
 
         // Restore outro voice
@@ -829,6 +1060,26 @@ function hexToRgba(hex, alpha) {
 // ═══════════════════════════════════════════════════════════
 // ████  CANVAS RENDERING  ████
 // ═══════════════════════════════════════════════════════════
+// Rect del video dibujado en el preview (unidades del canvas de preview).
+// Sirve para marcar los bordes de la imagen y ver qué zona del 9:16
+// queda como franja negra al mover el clip.
+function getVideoDrawRect(clip) {
+    const v = clip && clip.videoEl;
+    if (!v || !v.videoWidth || !v.videoHeight) return null;
+    const videoRatio = v.videoWidth / v.videoHeight;
+    const targetRatio = PREVIEW_W / PREVIEW_H;
+    let sw, sh;
+    if (videoRatio > targetRatio) { sh = PREVIEW_H; sw = PREVIEW_H * videoRatio; }
+    else { sw = PREVIEW_W; sh = PREVIEW_W / videoRatio; }
+    const panX = (clip.panX || 0) * SCALE;
+    const panY = (clip.panY || 0) * SCALE;
+    return {
+        x: (PREVIEW_W - sw) / 2 + panX,
+        y: (PREVIEW_H - sh) / 2 + panY,
+        w: sw, h: sh
+    };
+}
+
 function drawVideoCover(c, clip, dx, dy, dw, dh, s) {
     if (!clip || !clip.videoEl || clip.videoEl.readyState < 2) return;
     const video = clip.videoEl;
@@ -858,8 +1109,64 @@ function drawVideoCover(c, clip, dx, dy, dw, dh, s) {
     let x = dx + (dw - sw) / 2 + panX;
     let y = dy + (dh - sh) / 2 + panY;
 
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = 'high';
     c.drawImage(video, x, y, sw, sh);
     c.restore();
+}
+
+// Ajuste "contain": muestra el video COMPLETO sin recortar nada.
+// Si el ratio del video no es exactamente 9:16, deja bandas negras en el lado sobrante.
+// Devuelve true si dibujó el video (false si el clip aún no tiene frame disponible).
+function drawVideoContain(c, clip, dx, dy, dw, dh, s) {
+    if (!clip || !clip.videoEl || clip.videoEl.readyState < 2) return false;
+    const video = clip.videoEl;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (vw === 0 || vh === 0) return false;
+
+    c.save();
+    c.beginPath();
+    c.rect(dx, dy, dw, dh);
+    c.clip();
+
+    const videoRatio = vw / vh;
+    const targetRatio = dw / dh;
+    let sw = dw, sh = dh;
+
+    if (videoRatio > targetRatio) {
+        sh = dh;
+        sw = dh * videoRatio;
+    } else {
+        sw = dw;
+        sh = dw / videoRatio;
+    }
+
+    const panX = (clip.panX || 0) * s;
+    const panY = (clip.panY || 0) * s;
+    const x = dx + (dw - sw) / 2 + panX;
+    const y = dy + (dh - sh) / 2 + panY;
+
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = 'high';
+    c.drawImage(video, x, y, sw, sh);
+    c.restore();
+    return true;
+}
+
+// ─── Retención de frame para transiciones del export ───
+// Copia el frame actual del canvas de export: si el siguiente clip tarda en
+// estar listo, se muestra este en su lugar (en vez de congelar el timeline
+// mientras el audio sigue avanzando → desincronización percibida).
+let exportHoldCanvas = null;
+function captureExportHold() {
+    if (!exportCanvas) return;
+    if (!exportHoldCanvas) exportHoldCanvas = document.createElement('canvas');
+    if (exportHoldCanvas.width !== exportCanvas.width || exportHoldCanvas.height !== exportCanvas.height) {
+        exportHoldCanvas.width = exportCanvas.width;
+        exportHoldCanvas.height = exportCanvas.height;
+    }
+    exportHoldCanvas.getContext('2d').drawImage(exportCanvas, 0, 0);
 }
 
 function drawTitleLine(c, text, pos, font, fs, defaultColor, s) {
@@ -914,6 +1221,7 @@ function drawNumbers(c, s) {
 
     for (let i = 0; i < total; i++) {
         const clip = state.clips[i];
+        if (clip.numberVisible === false) continue;
         let cx = baseCx;
         let cy = startY + i * spacing;
         if (clip.numberPos) {
@@ -949,6 +1257,9 @@ function drawNumbers(c, s) {
 
         // Draw position number in circle
         c.font = `bold ${activeFs}px ${n.font}`;
+        // Borde visual REAL del número: el glifo ("5.", "1.") tiene ancho distinto al círculo
+        const _txtW = c.measureText(posNumber).width;
+        const _visLeft = (n.showCircle !== false) ? (cx - activeCircleR) : (cx - _txtW / 2);
         c.shadowColor = 'transparent';
         c.shadowBlur = 0;
         if (n.showOutline) {
@@ -993,7 +1304,8 @@ function drawNumbers(c, s) {
             w: activeCircleR * 2,
             h: activeCircleR * 2,
             cx: cx,
-            cy: cy
+            cy: cy,
+            left: _visLeft
         });
     }
     c.restore();
@@ -1004,6 +1316,7 @@ function drawNumbers(c, s) {
 }
 
 function drawCaptions(c, s) {
+    clipCaptionsBBox = null;
     if (state.clips.length === 0) return;
     const clip = state.clips[currentClipIndex];
     if (!clip || !clip.captionsEnabled || !clip.captions || clip.captions.length === 0 || !clip.videoEl) return;
@@ -1025,7 +1338,12 @@ function drawCaptions(c, s) {
 
     const cW = c.canvas.width;
     const cH = c.canvas.height;
-    let yBottom = cH - barBottomH - 30 * s;
+    const pos = clip.captionPos || null;
+    const centerX = pos ? pos.x * cW : cW / 2;
+    let yBottom = pos ? pos.y * cH : cH - barBottomH - 30 * s;
+
+    clipCaptionsBBox = null;
+    let bbMinX = Infinity, bbMinY = Infinity, bbMaxX = -Infinity, bbMaxY = -Infinity;
 
     // Draw from bottom to up
     for (let i = active.length - 1; i >= 0; i--) {
@@ -1033,8 +1351,13 @@ function drawCaptions(c, s) {
         const textW = c.measureText(text).width;
         const boxW = textW + padding * 2;
         const boxH = lineH + padding;
-        const boxX = (cW - boxW) / 2;
+        const boxX = centerX - boxW / 2;
         const boxY = yBottom - boxH;
+
+        bbMinX = Math.min(bbMinX, boxX);
+        bbMinY = Math.min(bbMinY, boxY);
+        bbMaxX = Math.max(bbMaxX, boxX + boxW);
+        bbMaxY = Math.max(bbMaxY, yBottom);
 
         c.fillStyle = hexToRgba(cs.bgColor, cs.bgOpacity);
         c.beginPath();
@@ -1044,11 +1367,22 @@ function drawCaptions(c, s) {
         c.fillStyle = cs.color;
         c.shadowColor = 'rgba(0,0,0,0.8)';
         c.shadowBlur = 4 * s;
-        c.fillText(text, cW / 2, boxY + padding / 2);
+        c.fillText(text, centerX, boxY + padding / 2);
 
         yBottom = boxY - 8 * s;
     }
+    clipCaptionsBBox = { x: bbMinX, y: bbMinY, w: bbMaxX - bbMinX, h: bbMaxY - bbMinY };
     c.restore();
+}
+
+function getIntroBgClip() {
+    const id = state.intro && state.intro.bgClipId;
+    if (id) {
+        const c = state.clips.find(cl => cl.id === id && cl.videoEl && cl.videoEl.readyState >= 2);
+        if (c) return c;
+    }
+    // fallback: primer clip con video listo
+    return state.clips.find(cl => cl.videoEl && cl.videoEl.readyState >= 2) || null;
 }
 
 function drawIntroFrame(c, s) {
@@ -1060,8 +1394,8 @@ function drawIntroFrame(c, s) {
     c.fillStyle = '#000';
     c.fillRect(0, 0, cW, cH);
 
-    // Blurred video frame as background
-    const bgClip = state.clips.find(cl => cl.videoEl && cl.videoEl.readyState >= 2);
+    // Video de fondo elegido, reproduciéndose durante la intro
+    const bgClip = getIntroBgClip();
     if (bgClip) {
         c.save();
         c.filter = `blur(${intro.blurAmount * s}px)`;
@@ -1570,6 +1904,9 @@ function drawBarsAndPercentage(c, s) {
 }
 
 
+const blurBarScratch = document.createElement('canvas');
+const BLURBAR_DOWN = 4; // factor de downscale para renderizar las blur bars
+
 function drawBlurBars(c, s) {
     blurBarBBoxes = [];
     const clip = state.clips[currentClipIndex];
@@ -1586,17 +1923,128 @@ function drawBlurBars(c, s) {
         const bw = Math.max(1, bar.w * s);
         const bh = Math.max(1, bar.h * s);
 
-        c.save();
-        c.beginPath();
-        c.rect(bx, by, bw, bh);
-        c.clip();
-        c.filter = `blur(${Math.max(1, bar.blur) * s}px)`;
-        drawVideoCover(c, clip, 0, 0, cW, cH, s);
-        c.filter = 'none';
-        c.restore();
+        // Renderizar el blur a 1/4 de escala y re-escalar al blit: sobre una región
+        // borrosa el resultado es visualmente idéntico, a ~1/16 del costo por frame
+        // (clave para no dropear frames durante la exportación a 1080×1920).
+        const tw = Math.max(1, Math.round(bw / BLURBAR_DOWN));
+        const th = Math.max(1, Math.round(bh / BLURBAR_DOWN));
+        if (blurBarScratch.width !== tw || blurBarScratch.height !== th) {
+            blurBarScratch.width = tw;
+            blurBarScratch.height = th;
+        }
+        const tctx = blurBarScratch.getContext('2d');
+        tctx.clearRect(0, 0, tw, th);
+        tctx.save();
+        tctx.beginPath();
+        tctx.rect(0, 0, tw, th);
+        tctx.clip();
+        tctx.filter = `blur(${(Math.max(1, bar.blur) * s) / BLURBAR_DOWN}px)`;
+        drawVideoCover(tctx, clip, -bx / BLURBAR_DOWN, -by / BLURBAR_DOWN, cW / BLURBAR_DOWN, cH / BLURBAR_DOWN, s / BLURBAR_DOWN);
+        tctx.filter = 'none';
+        tctx.restore();
+
+        c.imageSmoothingEnabled = true;
+        c.imageSmoothingQuality = 'high';
+        c.drawImage(blurBarScratch, 0, 0, tw, th, bx, by, bw, bh);
 
         blurBarBBoxes.push({ id: bar.id, x: bx, y: by, w: bw, h: bh });
     }
+}
+
+// ─── Overlay guía de la interfaz de YouTube Shorts (solo preview) ───
+// Zonas definidas en espacio export 1080×1920, escaladas por s.
+const SHORTS_ZONES = [
+    { x: 20,  y: 40,  w: 180, h: 80,  label: 'Logo / Back' },
+    { x: 820, y: 120, w: 240, h: 170, label: 'Avatar + Canal + Suscribirse' },
+    { x: 880, y: 880, w: 180, h: 620, label: 'Like · Dislike · Comentar · Compartir · Remix · Más' },
+    { x: 30,  y: 1530,w: 760, h: 300, label: 'Título / Descripción' },
+    { x: 900, y: 1740,w: 150, h: 110, label: 'Pista de audio' },
+    { x: 980, y: 820, w: 60,  h: 280, label: 'Nav Shorts' }
+];
+const SHORTS_SAFE_ZONE = { x: 40, y: 280, w: 780, h: 1220 };
+
+function drawShortsOverlay(c, s) {
+    const o = state.shortsOverlay || {};
+    const opacity = Math.max(0, Math.min(1, o.opacity ?? 0.5));
+    if (opacity <= 0) return;
+
+    c.save();
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    const fs = Math.max(9, 16 * s);
+
+    // Área segura
+    c.setLineDash([10 * s, 6 * s]);
+    c.strokeStyle = 'rgba(80, 220, 120, 0.7)';
+    c.lineWidth = 2 * s;
+    c.fillStyle = 'rgba(80, 220, 120, 0.06)';
+    c.fillRect(SHORTS_SAFE_ZONE.x * s, SHORTS_SAFE_ZONE.y * s, SHORTS_SAFE_ZONE.w * s, SHORTS_SAFE_ZONE.h * s);
+    c.strokeRect(SHORTS_SAFE_ZONE.x * s, SHORTS_SAFE_ZONE.y * s, SHORTS_SAFE_ZONE.w * s, SHORTS_SAFE_ZONE.h * s);
+
+    // Zonas de la interfaz
+    c.setLineDash([6 * s, 4 * s]);
+    c.lineWidth = 2 * s;
+    c.font = `bold ${fs}px 'Segoe UI', sans-serif`;
+    for (const z of SHORTS_ZONES) {
+        const x = z.x * s, y = z.y * s, w = z.w * s, h = z.h * s;
+        c.fillStyle = `rgba(0,0,0,${opacity})`;
+        c.fillRect(x, y, w, h);
+        c.strokeStyle = 'rgba(255,255,255,0.7)';
+        c.strokeRect(x, y, w, h);
+        // Etiqueta
+        c.fillStyle = 'rgba(255,255,255,0.92)';
+        c.shadowColor = 'rgba(0,0,0,0.8)';
+        c.shadowBlur = 4 * s;
+        c.fillText(z.label, x + w / 2, y + h / 2, w - 8 * s);
+        c.shadowBlur = 0;
+    }
+
+    // Leyenda
+    c.setLineDash([]);
+    c.font = `bold ${Math.max(10, 18 * s)}px 'Segoe UI', sans-serif`;
+    c.fillStyle = 'rgba(255, 220, 80, 0.95)';
+    c.shadowColor = 'rgba(0,0,0,0.9)';
+    c.shadowBlur = 6 * s;
+    c.fillText('Vista previa de zona segura — no se exporta', (EXPORT_W / 2) * s, (EXPORT_H - 12) * s);
+    c.restore();
+}
+
+// Marca en el preview los bordes del video que quedan DENTRO del encuadre 9:16:
+// así se ve exactamente qué zona del frame quedará como franja negra al mover
+// el clip. Solo es una guía del preview (no se exporta).
+function drawVideoEdgeGuides(c) {
+    const clip = state.clips[currentClipIndex];
+    const r = getVideoDrawRect(clip);
+    if (!r) return;
+    c.save();
+    c.setLineDash([8, 6]);
+    c.lineWidth = 2;
+    c.strokeStyle = 'rgba(255, 90, 90, 0.9)';
+    c.fillStyle = 'rgba(255, 120, 120, 0.95)';
+    c.font = 'bold 10px Segoe UI, sans-serif';
+    c.shadowColor = 'rgba(0,0,0,0.8)';
+    c.shadowBlur = 3;
+    if (r.x > 0.5) {
+        const ex = Math.round(r.x) + 0.5;
+        c.beginPath(); c.moveTo(ex, 0); c.lineTo(ex, PREVIEW_H); c.stroke();
+        c.fillText('◄ video (franja negra a la izquierda)', ex + 6, PREVIEW_H / 2);
+    }
+    if (r.x + r.w < PREVIEW_W - 0.5) {
+        const ex = Math.round(r.x + r.w) - 0.5;
+        c.beginPath(); c.moveTo(ex, 0); c.lineTo(ex, PREVIEW_H); c.stroke();
+        c.fillText('video ► (franja negra a la derecha)', Math.max(6, ex - 180), PREVIEW_H / 2);
+    }
+    if (r.y > 0.5) {
+        const ey = Math.round(r.y) + 0.5;
+        c.beginPath(); c.moveTo(0, ey); c.lineTo(PREVIEW_W, ey); c.stroke();
+        c.fillText('▲ video (franja negra arriba)', 6, ey - 6);
+    }
+    if (r.y + r.h < PREVIEW_H - 0.5) {
+        const ey = Math.round(r.y + r.h) - 0.5;
+        c.beginPath(); c.moveTo(0, ey); c.lineTo(PREVIEW_W, ey); c.stroke();
+        c.fillText('video ▼ (franja negra abajo)', 6, ey + 14);
+    }
+    c.restore();
 }
 
 function drawFrame() {
@@ -1609,14 +2057,16 @@ function drawFrame() {
     ctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
 
     const clip = state.clips[currentClipIndex];
-    if (clip) drawVideoCover(ctx, clip, 0, 0, PREVIEW_W, PREVIEW_H, SCALE);
+    if (clip) drawVideoContain(ctx, clip, 0, 0, PREVIEW_W, PREVIEW_H, SCALE);
 
     drawBlurBars(ctx, SCALE);
     drawBarsAndPercentage(ctx, SCALE);
 
     // Save bboxes only during preview
-    title1BBox = drawTitleLine(ctx, state.title.line1, state.layout.title1Pos, state.title.font, state.title.fontSize * SCALE, state.title.textColor, SCALE);
-    title2BBox = drawTitleLine(ctx, state.title.line2, state.layout.title2Pos, state.title.font, state.title.fontSize * SCALE, state.title.textColor, SCALE);
+    titleBBoxes = [];
+    state.title.lines.forEach((line, i) => {
+        titleBBoxes[i] = drawTitleLine(ctx, line, getTitlePos(i), getTitleLineFont(i), getTitleLineSize(i) * SCALE, state.title.textColor, SCALE);
+    });
     numberBBox = drawNumbers(ctx, SCALE);
 
     drawCaptions(ctx, SCALE);
@@ -1635,6 +2085,9 @@ function drawFrame() {
     drawScreenTexts(ctx, SCALE);
     drawVoCaptions(ctx, SCALE);
 
+    // Guía de bordes del video: siempre visible en el preview (no se exporta)
+    if (!isPlaying && !isExporting) drawVideoEdgeGuides(ctx);
+
     // Outro: solo se dibuja cuando el cabezal está en su tramo final
     const outroStartAt = getIntroOffset() + getClipsEnd();
     if (state.outro.enabled && !isPlaying && !isExporting && getElapsedTime() >= outroStartAt - 0.05) {
@@ -1644,19 +2097,50 @@ function drawFrame() {
         drawOutroContent(ctx, SCALE);
     }
 
+    // Líneas guía de alineación (durante arrastre cerca del nivel/columna de otro elemento)
+    if ((canvasGuideY !== null || canvasGuideX !== null) && dragging) {
+        ctx.save();
+        ctx.setLineDash([6, 5]);
+        ctx.lineWidth = 1;
+        if (canvasGuideY !== null) {
+            ctx.strokeStyle = canvasGuideYMode === 'spacing' ? '#4dd2ff' : '#ff4dd2';
+            ctx.shadowColor = canvasGuideYMode === 'spacing' ? 'rgba(77,210,255,0.8)' : 'rgba(255,77,210,0.8)';
+            ctx.shadowBlur = 4;
+            const gy = Math.round(canvasGuideY) + 0.5;
+            ctx.beginPath();
+            ctx.moveTo(0, gy);
+            ctx.lineTo(PREVIEW_W, gy);
+            ctx.stroke();
+        }
+        if (canvasGuideX !== null) {
+            ctx.strokeStyle = '#ff4dd2';
+            ctx.shadowColor = 'rgba(255,77,210,0.8)';
+            ctx.shadowBlur = 4;
+            const gx = Math.round(canvasGuideX) + 0.5;
+            ctx.beginPath();
+            ctx.moveTo(gx, 0);
+            ctx.lineTo(gx, PREVIEW_H);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
     // Drag outlines
     if (dragging) {
         ctx.save();
         ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(90,90,255,0.8)'; ctx.lineWidth = 2;
         const drawOutline = (bbox) => { if(bbox) ctx.strokeRect(bbox.x, bbox.y, bbox.w, bbox.h); };
-        if (dragging === 'title1') drawOutline(title1BBox);
-        if (dragging === 'title2') drawOutline(title2BBox);
+        if (dragging && dragging.startsWith('title_')) {
+            const ti = parseInt(dragging.split('_')[1]);
+            drawOutline(titleBBoxes[ti]);
+        }
         if (dragging === 'number') drawOutline(numberBBox);
         if (dragging === 'introCaption') drawOutline(introCaptionBBox);
         if (dragging === 'headline') drawOutline(headlineBBox);
         if (dragging === 'endQuestion') drawOutline(endQuestionBBox);
         if (dragging === 'outroCaption') drawOutline(outroCaptionBBox);
         if (dragging === 'voCaption') drawOutline(voCaptionBBox);
+        if (dragging === 'clipCaption') drawOutline(clipCaptionsBBox);
         if (dragging.startsWith('freezeText_')) {
             const idx = parseInt(dragging.split('_')[1]);
             const fb = freezeTextBBoxes.find(b => b.index === idx);
@@ -1664,6 +2148,11 @@ function drawFrame() {
         }
         if (dragging === 'blurBar') blurBarBBoxes.forEach(b => drawOutline(b));
         ctx.restore();
+    }
+
+    // YouTube Shorts overlay — guía visual solo para preview (no se exporta)
+    if (!isExporting && state.shortsOverlay && state.shortsOverlay.enabled && state.shortsOverlay.visible) {
+        drawShortsOverlay(ctx, SCALE);
     }
 }
 
@@ -1676,14 +2165,17 @@ function hitTest(x, y, bbox) {
 }
 
 function hitTestNumber(x, y) {
-    // Check individual numbers from last to first (top-most first visually)
-    for (let i = numberBBoxes.length - 1; i >= 0; i--) {
-        const b = numberBBoxes[i];
-        if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
-            return b.index;
-        }
+    // Devuelve el número MÁS CERCANO al clic dentro de su área de influencia
+    // (radio del círculo + tolerancia), para que el punto de interacción coincida
+    // exactamente con donde se dibuja cada número.
+    let best = -1, bestD = Infinity;
+    for (const b of numberBBoxes) {
+        const r = Math.max(b.w, b.h) / 2 + 8; // tolerancia extra en px de canvas
+        const dx = x - b.cx, dy = y - b.cy;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d <= r && d < bestD) { bestD = d; best = b.index; }
     }
-    return -1;
+    return best;
 }
 
 function hitTestBlurBar(x, y) {
@@ -1704,11 +2196,114 @@ function hitTestFreezeText(x, y) {
     return null;
 }
 
+// Convierte coordenadas de ratón a píxeles internos del canvas,
+// tolerando cualquier diferencia entre tamaño mostrado y resolución interna
+function canvasMousePos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const sx = rect.width > 0 ? canvas.width / rect.width : 1;
+    const sy = rect.height > 0 ? canvas.height / rect.height : 1;
+    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
+}
+
+// ─── Guías de alineación (líneas guía al pasar cerca del nivel de otro elemento) ───
+let canvasGuideY = null;      // línea guía horizontal (nivel Y) durante un arrastre
+let canvasGuideX = null;      // línea guía vertical (columna X)
+let canvasGuideYMode = 'level'; // 'level' = mismo nivel · 'spacing' = iguala distancia
+
+function guideCandidates(excludeKey) {
+    const cands = [];
+    numberBBoxes.forEach(b => { const k = 'number_' + b.index; if (k !== excludeKey) cands.push({ key: k, y: b.cy }); });
+    titleBBoxes.forEach((b, i) => { if (b && excludeKey !== 'title_' + i) cands.push({ key: 'title_' + i, y: b.y + b.h / 2 }); });
+    if (introCaptionBBox && excludeKey !== 'introCaption') cands.push({ key: 'introCaption', y: introCaptionBBox.y + introCaptionBBox.h / 2 });
+    if (headlineBBox && excludeKey !== 'headline') cands.push({ key: 'headline', y: headlineBBox.y + headlineBBox.h / 2 });
+    if (endQuestionBBox && excludeKey !== 'endQuestion') cands.push({ key: 'endQuestion', y: endQuestionBBox.y + endQuestionBBox.h / 2 });
+    if (outroCaptionBBox && excludeKey !== 'outroCaption') cands.push({ key: 'outroCaption', y: outroCaptionBBox.y + outroCaptionBBox.h / 2 });
+    if (voCaptionBBox && excludeKey !== 'voCaption') cands.push({ key: 'voCaption', y: voCaptionBBox.y + voCaptionBBox.h / 2 });
+    if (clipCaptionsBBox && excludeKey !== 'clipCaption') cands.push({ key: 'clipCaption', y: clipCaptionsBBox.y + clipCaptionsBBox.h / 2 });
+    freezeTextBBoxes.forEach(b => { const k = 'freeze_' + b.id; if (k !== excludeKey) cands.push({ key: k, y: b.y + b.h / 2 }); });
+    return cands;
+}
+
+// Ajusta la Y del elemento arrastrado al nivel del elemento más cercano (si está a <8px)
+// o IGUALA LA DISTANCIA vertical entre los dos números más cercanos (<12px).
+// Devuelve la Y ajustada en píxeles de canvas.
+function snapGuideY(rawCanvasY, excludeKey) {
+    if (!dragging) { canvasGuideY = null; return rawCanvasY; }
+    // 1) Mismo nivel
+    const cands = guideCandidates(excludeKey);
+    let best = null, bestD = 8;
+    for (const c of cands) {
+        const d = Math.abs(c.y - rawCanvasY);
+        if (d <= bestD) { bestD = d; best = c; }
+    }
+    if (best) { canvasGuideY = best.y; canvasGuideYMode = 'level'; return best.y; }
+
+    // 2) Igualar espaciado vertical: usa UNA SOLA distancia — la del par de números
+    // más cercano al elemento arrastrado (el número vivo más próximo y su vecino inmediato)
+    const nums = numberBBoxes
+        .filter(b => ('number_' + b.index) !== excludeKey)
+        .map(b => b.cy)
+        .sort((a, b) => a - b);
+    if (nums.length >= 2) {
+        // Número vivo más cercano a la posición actual del arrastre
+        let ni = 0, nD = Infinity;
+        for (let i = 0; i < nums.length; i++) {
+            const d = Math.abs(nums[i] - rawCanvasY);
+            if (d < nD) { nD = d; ni = i; }
+        }
+        // Hueco adyacente más pequeño de ese número (con el vecino de arriba o de abajo)
+        const gaps = [];
+        if (ni > 0) gaps.push(nums[ni] - nums[ni - 1]);
+        if (ni < nums.length - 1) gaps.push(nums[ni + 1] - nums[ni]);
+        const g = Math.min.apply(null, gaps.filter(x => x > 6));
+        if (g && isFinite(g)) {
+            let sp = null, spD = 12;
+            for (const cand of [nums[ni] + g, nums[ni] - g]) {
+                if (cand < 0 || cand > PREVIEW_H) continue;
+                const diff = Math.abs(cand - rawCanvasY);
+                if (diff <= spD) { spD = diff; sp = { y: cand }; }
+            }
+            if (sp) { canvasGuideY = sp.y; canvasGuideYMode = 'spacing'; return sp.y; }
+        }
+    }
+
+    canvasGuideY = null;
+    return rawCanvasY;
+}
+
+// ─── Guías verticales (misma columna X) ───
+function guideCandidatesX(excludeKey) {
+    const cands = [];
+    // Los números se guían por su BORDE IZQUIERDO VISUAL (el glifo real, no solo el círculo)
+    numberBBoxes.forEach(b => { const k = 'number_' + b.index; if (k !== excludeKey) cands.push({ key: k, x: (b.left !== undefined ? b.left : b.x) }); });
+    titleBBoxes.forEach((b, i) => { if (b && excludeKey !== 'title_' + i) cands.push({ key: 'title_' + i, x: b.x + b.w / 2 }); });
+    if (introCaptionBBox && excludeKey !== 'introCaption') cands.push({ key: 'introCaption', x: introCaptionBBox.x + introCaptionBBox.w / 2 });
+    if (headlineBBox && excludeKey !== 'headline') cands.push({ key: 'headline', x: headlineBBox.x + headlineBBox.w / 2 });
+    if (endQuestionBBox && excludeKey !== 'endQuestion') cands.push({ key: 'endQuestion', x: endQuestionBBox.x + endQuestionBBox.w / 2 });
+    if (outroCaptionBBox && excludeKey !== 'outroCaption') cands.push({ key: 'outroCaption', x: outroCaptionBBox.x + outroCaptionBBox.w / 2 });
+    if (voCaptionBBox && excludeKey !== 'voCaption') cands.push({ key: 'voCaption', x: voCaptionBBox.x + voCaptionBBox.w / 2 });
+    if (clipCaptionsBBox && excludeKey !== 'clipCaption') cands.push({ key: 'clipCaption', x: clipCaptionsBBox.x + clipCaptionsBBox.w / 2 });
+    freezeTextBBoxes.forEach(b => { const k = 'freeze_' + b.id; if (k !== excludeKey) cands.push({ key: k, x: b.x + b.w / 2 }); });
+    return cands;
+}
+
+function snapGuideX(rawCanvasX, excludeKey) {
+    if (!dragging) { canvasGuideX = null; return rawCanvasX; }
+    const cands = guideCandidatesX(excludeKey);
+    let best = null, bestD = 8;
+    for (const c of cands) {
+        const d = Math.abs(c.x - rawCanvasX);
+        if (d <= bestD) { bestD = d; best = c; }
+    }
+    if (best) { canvasGuideX = best.x; return best.x; }
+    canvasGuideX = null;
+    return rawCanvasX;
+}
+
 canvas.addEventListener('mousedown', (e) => {
     if (isPlaying || isExporting) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const pos = canvasMousePos(e);
+    const mx = pos.x, my = pos.y;
 
     if (hitTest(mx, my, introCaptionBBox)) {
         dragging = 'introCaption';
@@ -1730,10 +2325,18 @@ canvas.addEventListener('mousedown', (e) => {
         dragging = 'voCaption';
         const cp = state.clips[currentClipIndex].vo.capPos || { x: 0.5, y: 0.62 };
         dragOffset = { x: mx - cp.x * PREVIEW_W, y: my - cp.y * PREVIEW_H };
+    } else if (hitTest(mx, my, clipCaptionsBBox)) {
+        const clip = state.clips[currentClipIndex];
+        if (!clip.captionPos) {
+            const defY = PREVIEW_H - state.barBottom.height * SCALE - 30 * SCALE;
+            clip.captionPos = { x: 0.5, y: defY / PREVIEW_H };
+        }
+        dragging = 'clipCaption';
+        dragOffset = { x: mx - clip.captionPos.x * PREVIEW_W, y: my - clip.captionPos.y * PREVIEW_H };
     } else if (hitTestFreezeText(mx, my) !== null) {
         const fb = hitTestFreezeText(mx, my);
         dragging = 'freezeText_' + fb.index;
-        dragOffset = { x: mx - fb.x, y: my - fb.y };
+        dragOffset = { x: mx - fb.x, y: my - fb.y, hh: fb.h / 2 || 0, hw: fb.w / 2 || 0 };
     } else if (hitTestBlurBar(mx, my) !== -1) {
         const barId = hitTestBlurBar(mx, my);
         const clip = state.clips[currentClipIndex];
@@ -1742,12 +2345,11 @@ canvas.addEventListener('mousedown', (e) => {
             dragging = 'blurBar';
             dragOffset = { x: mx - bar.x * SCALE, y: my - bar.y * SCALE, id: barId };
         }
-    } else if (hitTest(mx, my, title1BBox)) {
-        dragging = 'title1';
-        dragOffset = { x: mx - state.layout.title1Pos.x * SCALE, y: my - state.layout.title1Pos.y * SCALE };
-    } else if (hitTest(mx, my, title2BBox)) {
-        dragging = 'title2';
-        dragOffset = { x: mx - state.layout.title2Pos.x * SCALE, y: my - state.layout.title2Pos.y * SCALE };
+    } else if (hitTitleIndex(mx, my) !== -1) {
+        const ti = hitTitleIndex(mx, my);
+        dragging = 'title_' + ti;
+        const p = getTitlePos(ti);
+        dragOffset = { x: mx - p.x * SCALE, y: my - p.y * SCALE };
     } else {
         const numIdx = hitTestNumber(mx, my);
         if (numIdx !== -1) {
@@ -1781,37 +2383,56 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const pos = canvasMousePos(e);
+    const mx = pos.x, my = pos.y;
 
     if (dragging) {
         if (dragging === 'introCaption') {
+            const cy = snapGuideY(my - dragOffset.y, 'introCaption');
+            const cx = snapGuideX(mx - dragOffset.x, 'introCaption');
             state.intro.captionPos = {
-                x: Math.max(0, Math.min(1, (mx - dragOffset.x) / PREVIEW_W)),
-                y: Math.max(0, Math.min(1, (my - dragOffset.y) / PREVIEW_H))
+                x: Math.max(0, Math.min(1, cx / PREVIEW_W)),
+                y: Math.max(0, Math.min(1, cy / PREVIEW_H))
             };
         } else if (dragging === 'headline') {
+            const cy = snapGuideY(my - dragOffset.y, 'headline');
+            const cx = snapGuideX(mx - dragOffset.x, 'headline');
             state.screenTexts.headline.pos = {
-                x: Math.max(0, Math.min(1, (mx - dragOffset.x) / PREVIEW_W)),
-                y: Math.max(0, Math.min(1, (my - dragOffset.y) / PREVIEW_H))
+                x: Math.max(0, Math.min(1, cx / PREVIEW_W)),
+                y: Math.max(0, Math.min(1, cy / PREVIEW_H))
             };
         } else if (dragging === 'endQuestion') {
+            const cy = snapGuideY(my - dragOffset.y, 'endQuestion');
+            const cx = snapGuideX(mx - dragOffset.x, 'endQuestion');
             state.screenTexts.endQuestion.pos = {
-                x: Math.max(0, Math.min(1, (mx - dragOffset.x) / PREVIEW_W)),
-                y: Math.max(0, Math.min(1, (my - dragOffset.y) / PREVIEW_H))
+                x: Math.max(0, Math.min(1, cx / PREVIEW_W)),
+                y: Math.max(0, Math.min(1, cy / PREVIEW_H))
             };
         } else if (dragging === 'outroCaption') {
+            const cy = snapGuideY(my - dragOffset.y, 'outroCaption');
+            const cx = snapGuideX(mx - dragOffset.x, 'outroCaption');
             state.outro.captionPos = {
-                x: Math.max(0, Math.min(1, (mx - dragOffset.x) / PREVIEW_W)),
-                y: Math.max(0, Math.min(1, (my - dragOffset.y) / PREVIEW_H))
+                x: Math.max(0, Math.min(1, cx / PREVIEW_W)),
+                y: Math.max(0, Math.min(1, cy / PREVIEW_H))
             };
         } else if (dragging === 'voCaption') {
             const clip = state.clips[currentClipIndex];
             if (clip && clip.vo) {
+                const cy = snapGuideY(my - dragOffset.y, 'voCaption');
+                const cx = snapGuideX(mx - dragOffset.x, 'voCaption');
                 ensureVo(clip).capPos = {
-                    x: Math.max(0, Math.min(1, (mx - dragOffset.x) / PREVIEW_W)),
-                    y: Math.max(0, Math.min(1, (my - dragOffset.y) / PREVIEW_H))
+                    x: Math.max(0, Math.min(1, cx / PREVIEW_W)),
+                    y: Math.max(0, Math.min(1, cy / PREVIEW_H))
+                };
+            }
+        } else if (dragging === 'clipCaption') {
+            const clip = state.clips[currentClipIndex];
+            if (clip) {
+                const cy = snapGuideY(my - dragOffset.y, 'clipCaption');
+                const cx = snapGuideX(mx - dragOffset.x, 'clipCaption');
+                clip.captionPos = {
+                    x: Math.max(0, Math.min(1, cx / PREVIEW_W)),
+                    y: Math.max(0, Math.min(1, cy / PREVIEW_H))
                 };
             }
         } else if (dragging.startsWith('freezeText_')) {
@@ -1819,8 +2440,11 @@ canvas.addEventListener('mousemove', (e) => {
             const clip = state.clips[currentClipIndex];
             const ff = clip && clip.freezes ? clip.freezes[idx] : null;
             if (ff) {
-                ff.posX = Math.max(0, Math.min(1, (mx - dragOffset.x) / PREVIEW_W));
-                ff.posY = Math.max(0, Math.min(1, (my - dragOffset.y) / PREVIEW_H));
+                // posX/posY son el CENTRO del texto; compensar el agarre por el borde superior-izquierdo
+                const cy = snapGuideY((my - dragOffset.y) + (dragOffset.hh || 0), dragging);
+                const cx = snapGuideX((mx - dragOffset.x) + (dragOffset.hw || 0), dragging);
+                ff.posX = Math.max(0, Math.min(1, cx / PREVIEW_W));
+                ff.posY = Math.max(0, Math.min(1, cy / PREVIEW_H));
             }
         } else if (dragging === 'blurBar') {
             const clip = state.clips[currentClipIndex];
@@ -1845,20 +2469,28 @@ canvas.addEventListener('mousemove', (e) => {
         } else if (dragging.startsWith('number_')) {
             const idx = parseInt(dragging.split('_')[1]);
             const clip = state.clips[idx];
+            const cy = snapGuideY(my - dragOffset.y, dragging);
+            // La guía vertical se referencia al BORDE IZQUIERDO VISUAL del número (glifo real)
+            const me = numberBBoxes.find(b => b.index === idx);
+            const refOff = me ? ((me.left !== undefined ? me.left : me.x) - me.cx) : 0;
+            const cxRef = snapGuideX((mx - dragOffset.x) + refOff, dragging);
             clip.numberPos = {
-                x: (mx - dragOffset.x) / SCALE,
-                y: (my - dragOffset.y) / SCALE
+                x: (cxRef - refOff) / SCALE,
+                y: cy / SCALE
             };
             numberPosTemplate[idx] = { ...clip.numberPos };
         } else {
-            const newX = (mx - dragOffset.x) / SCALE;
-            const newY = (my - dragOffset.y) / SCALE;
-            if (dragging === 'title1') state.layout.title1Pos = { x: newX, y: newY };
-            if (dragging === 'title2') state.layout.title2Pos = { x: newX, y: newY };
-            if (dragging === 'number') state.layout.numberPos = { x: newX, y: newY };
+            const cx = snapGuideX(mx - dragOffset.x, dragging);
+            const newY = snapGuideY(my - dragOffset.y, dragging) / SCALE;
+            if (dragging.startsWith('title_')) {
+                const ti = parseInt(dragging.split('_')[1]);
+                state.layout.titlePos[ti] = { x: cx / SCALE, y: newY };
+            }
+            if (dragging === 'number') state.layout.numberPos = { x: cx / SCALE, y: newY };
         }
+        drawFrame();
     } else {
-        if (hitTest(mx, my, introCaptionBBox) || hitTest(mx, my, title1BBox) || hitTest(mx, my, title2BBox) || hitTestNumber(mx, my) !== -1 || hitTest(mx, my, numberBBox) || hitTestBlurBar(mx, my) !== -1) {
+        if (hitTest(mx, my, introCaptionBBox) || hitTitleIndex(mx, my) !== -1 || hitTestNumber(mx, my) !== -1 || hitTest(mx, my, numberBBox) || hitTestBlurBar(mx, my) !== -1 || hitTest(mx, my, clipCaptionsBBox) || hitTest(mx, my, voCaptionBBox) || hitTest(mx, my, outroCaptionBBox)) {
             canvas.style.cursor = 'grab';
         } else {
             canvas.style.cursor = 'default';
@@ -1869,11 +2501,15 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseup', () => {
     if (dragging) scheduleAutoSave();
     dragging = null;
+    canvasGuideY = null;
+    canvasGuideX = null;
     canvas.style.cursor = 'default';
 });
 canvas.addEventListener('mouseleave', () => {
     if (dragging) scheduleAutoSave();
     dragging = null;
+    canvasGuideY = null;
+    canvasGuideX = null;
     canvas.style.cursor = 'default';
 });
 
@@ -1881,9 +2517,11 @@ canvas.addEventListener('mouseleave', () => {
 // ████  PLAYBACK & LOOP  ████
 // ═══════════════════════════════════════════════════════════
 function renderLoop() {
-    drawFrame();
+    // Durante la exportación no se dibuja el preview (el overlay lo tapa):
+    // todo el presupuesto de GPU/CPU va al canvas de export para no dropear frames.
+    if (!isExporting) drawFrame();
     if (isPlaying && !isExporting) updatePlaybackState();
-    if (isExporting && exportCtx) drawExportFrame();
+    if (isExporting && exportCtx) tickExportFrame();   // cadencia fija de FPS + requestFrame
     if (!isDraggingTimeline) updateTimelineUI();
     requestAnimationFrame(renderLoop);
 }
@@ -1946,96 +2584,81 @@ function getElapsedTime() {
 }
 
 function updateTimeDisplay() {
-    document.getElementById('timeDisplay').textContent = formatTime(getElapsedTime()) + ' / ' + formatTime(getTotalDuration());
+    const el = document.getElementById('timeDisplay');
+    if (el) el.textContent = formatTime(getElapsedTime()) + ' / ' + formatTime(getTotalDuration());
 }
 
 // ─── TIMELINE ───
 function updateTimelineUI() {
-    const total = getTimelineScaleDuration();
-    const pct = total > 0 ? (getElapsedTime() / total) * 100 : 0;
-    timelineProgress.style.width = pct + '%';
-    timelineHandle.style.left = pct + '%';
+    if (!tlPlayheadEl || !tlInner) return;
+    const x = getElapsedTime() * tlPxPerSec;
+    tlPlayheadEl.style.left = x + 'px';
+    if (isPlaying && !isExporting && !isDraggingTimeline && tlScroll) {
+        const sl = tlScroll.scrollLeft, w = tlScroll.clientWidth;
+        if (x < sl + 10 || x > sl + w - 40) tlScroll.scrollLeft = Math.max(0, x - w * 0.6);
+    }
 }
 
 function renderTimelineClips() {
-    if (!timelineClips) return;
+    if (!trackVideoEl) return;
+    applyTlSize();
+    trackVideoEl.innerHTML = '';
     const total = getTimelineScaleDuration();
-    timelineClips.innerHTML = '';
-    if (total <= 0) return;
+    if (total <= 0) { drawRuler(); return; }
 
     // Intro segment
     const introOffset = getIntroOffset();
     if (introOffset > 0) {
-        const seg = document.createElement('div');
-        seg.className = 'timeline-clip timeline-intro';
-        seg.style.left = '0%';
-        seg.style.width = Math.max(introOffset / total * 100, 0.8) + '%';
-        seg.title = 'Introducción · ' + formatTime(introOffset);
-        const lbl = document.createElement('span');
-        lbl.className = 'timeline-clip-label';
-        lbl.textContent = '🎬 Intro · ' + formatTime(introOffset);
-        seg.append(lbl);
-        seg.addEventListener('pointerdown', e => {
-            e.stopPropagation();
-            seekToTime(0);
-        });
-        timelineClips.appendChild(seg);
+        addTlStaticSeg(trackVideoEl, 0, introOffset, '🎬 Intro', 'Introducción · ' + formatTime(introOffset), () => seekToTime(0), false);
     }
 
     state.clips.forEach((clip, index) => {
-        const start = Number.isFinite(clip.timelineStart) ? clip.timelineStart : 0;
+        const start = introOffset + absClipStart(index);
         const duration = getClipTrimDuration(clip);
-        const segment = document.createElement('div');
-        segment.className = 'timeline-clip' + (index === currentClipIndex ? ' selected' : '');
-        segment.dataset.clipId = clip.id;
-        segment.style.left = ((introOffset + start) / total * 100) + '%';
-        segment.style.width = Math.max(duration / total * 100, 0.8) + '%';
-        segment.title = 'Clip ' + (index + 1) + ' · ' + formatTime(duration);
-        segment.addEventListener('pointerdown', e => {
-            if (e.target.closest('.trim-handle')) return;
-            e.stopPropagation();
-            selectClip(index);
-            seekToTime(introOffset + start);
-        });
+        // Clip sin video cargado: bloque visible, punteado y siempre encima
+        // para que se pueda agarrar y mover aunque coincida en X con otro bloque.
+        const isEmpty = !clip.file || duration <= 0;
+        const sel = tlSelection && tlSelection.type === 'clip' && tlSelection.id === clip.id;
+        const block = document.createElement('div');
+        block.className = 'tl-block tl-vblock' + (sel ? ' selected' : '') + (index === currentClipIndex && !sel ? ' current' : '') + (isEmpty ? ' tl-empty' : '');
+        block.dataset.clipId = clip.id;
+        block.style.left = (start * tlPxPerSec) + 'px';
+        block.style.width = (isEmpty ? Math.max(duration * tlPxPerSec, 30) : Math.max(duration * tlPxPerSec, 4)) + 'px';
+        if (clip.thumbs && clip.thumbs.length && !isEmpty) {
+            block.style.backgroundImage = 'url(' + clip.thumbs[0] + ')';
+            block.style.backgroundSize = 'auto 100%';
+            block.style.backgroundRepeat = 'repeat-x';
+        }
+        block.title = 'Clip ' + (index + 1) + ' · ' + (isEmpty ? 'sin video' : formatTime(duration)) + (clip.file ? ' · ' + clip.file.name : '');
 
         const label = document.createElement('span');
-        label.className = 'timeline-clip-label';
-        label.textContent = 'Clip ' + (index + 1) + ' · ' + formatTime(duration);
+        label.className = 'tl-blabel';
+        label.textContent = (clip.rankingPosition ? '#' + clip.rankingPosition + ' ' : '') + (clip.numberText || ('Clip ' + (index + 1))) + (isEmpty ? ' · sin video' : ' · ' + formatTime(duration));
+        block.appendChild(label);
 
-        const trimIn = document.createElement('div');
-        trimIn.className = 'trim-handle trim-in';
-        trimIn.title = 'Trim In: ' + formatTime(clip.trimStart);
-        trimIn.addEventListener('pointerdown', e => startTrimDrag(e, clip.id, 'in'));
-
-        const trimOut = document.createElement('div');
-        trimOut.className = 'trim-handle trim-out';
-        trimOut.title = 'Trim Out: ' + formatTime(clip.trimEnd);
-        trimOut.addEventListener('pointerdown', e => startTrimDrag(e, clip.id, 'out'));
-
-        segment.append(label);
-        if (index === currentClipIndex) segment.append(trimIn, trimOut);
-        timelineClips.appendChild(segment);
+        block.addEventListener('pointerdown', e => onTlBlockDown(e, { type: 'clip', id: clip.id }));
+        if (sel) {
+            const ti = document.createElement('div');
+            ti.className = 'trim-handle trim-in';
+            ti.title = 'Recortar inicio: ' + formatTime(clip.trimStart);
+            ti.addEventListener('pointerdown', e => startTrimDrag(e, { kind: 'clip', id: clip.id }, 'in'));
+            const to = document.createElement('div');
+            to.className = 'trim-handle trim-out';
+            to.title = 'Recortar fin: ' + formatTime(clip.trimEnd);
+            to.addEventListener('pointerdown', e => startTrimDrag(e, { kind: 'clip', id: clip.id }, 'out'));
+            block.append(ti, to);
+        }
+        trackVideoEl.appendChild(block);
     });
 
     // Outro segment
     const outroDur = getOutroOffset();
     if (outroDur > 0) {
-        const seg = document.createElement('div');
-        seg.className = 'timeline-clip timeline-intro';
-        const startPct = (getIntroOffset() + getClipsEnd()) / total * 100;
-        seg.style.left = startPct + '%';
-        seg.style.width = Math.max(outroDur / total * 100, 0.8) + '%';
-        seg.title = 'Outro · ' + formatTime(outroDur);
-        const lbl = document.createElement('span');
-        lbl.className = 'timeline-clip-label';
-        lbl.textContent = '🔔 Outro · ' + formatTime(outroDur);
-        seg.append(lbl);
-        seg.addEventListener('pointerdown', e => {
-            e.stopPropagation();
-            seekToTime(getIntroOffset() + getClipsEnd());
-        });
-        timelineClips.appendChild(seg);
+        const st = getIntroOffset() + getClipsEnd();
+        addTlStaticSeg(trackVideoEl, st, outroDur, '🔔 Outro', 'Outro · ' + formatTime(outroDur), () => seekToTime(st), true);
     }
+    ensureAllClipThumbs();
+    drawRuler();
 }
 
 function updateTrimPreview(clip) {
@@ -2046,65 +2669,113 @@ function updateTrimPreview(clip) {
     updateTimelineUI();
 }
 
-function startTrimDrag(event, clipId, edge) {
+function startTrimDrag(event, target, edge) {
     if (isPlaying || isExporting) return;
-    const clip = state.clips.find(c => c.id === clipId);
-    if (!clip) return;
     event.preventDefault();
     event.stopPropagation();
-    currentClipIndex = state.clips.indexOf(clip);
-    const rect = timelineTrack.getBoundingClientRect();
-    activeTrimDrag = {
-        clipId,
-        edge,
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startTimelineStart: clip.timelineStart || 0,
-        startTrimStart: clip.trimStart,
-        startTrimEnd: clip.trimEnd,
-        pixelsPerSecond: rect.width / Math.max(getTimelineScaleDuration(), 0.001)
-    };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const drag = { kind: target.kind, id: target.id, edge, pointerId: event.pointerId, startX: event.clientX, pixelsPerSecond: tlPxPerSec };
+    if (target.kind === 'clip') {
+        const clip = state.clips.find(c => c.id === target.id);
+        if (!clip) return;
+        currentClipIndex = state.clips.indexOf(clip);
+        drag.startTimelineStart = clip.timelineStart || 0;
+        drag.startTrimStart = clip.trimStart;
+        drag.startTrimEnd = clip.trimEnd;
+    } else if (target.kind === 'audio') {
+        const track = state.audioTracks.find(t => t.id === target.id);
+        if (!track) return;
+        tlSelection = { type: 'audio', id: track.id };
+        drag.origTrimStart = track.trimStart;
+        drag.origTrimEnd = track.trimEnd;
+        drag.origStart = track.timelineStart || 0;
+    } else {
+        return;
+    }
+    activeTrimDrag = drag;
     document.body.classList.add('trimming-clip');
+    event.currentTarget.setPointerCapture?.(event.pointerId);
 }
 
 function updateTrimDrag(event) {
     if (!activeTrimDrag || event.pointerId !== activeTrimDrag.pointerId) return;
     const drag = activeTrimDrag;
-    const clip = state.clips.find(c => c.id === drag.clipId);
-    if (!clip) return;
     const delta = (event.clientX - drag.startX) / drag.pixelsPerSecond;
-    const minDuration = 0.5;
 
-    if (drag.edge === 'in') {
-        const nextStart = clamp(drag.startTrimStart + delta, 0, drag.startTrimEnd - minDuration);
-        const appliedDelta = nextStart - drag.startTrimStart;
-        clip.trimStart = nextStart;
-        clip.timelineStart = Math.max(0, drag.startTimelineStart + appliedDelta);
-        repackTimelineClips();
-    } else {
-        clip.trimEnd = clamp(drag.startTrimEnd + delta, drag.startTrimStart + minDuration, clip.duration);
-        repackTimelineClips();
+    if (drag.kind === 'clip') {
+        const clip = state.clips.find(c => c.id === drag.id);
+        if (!clip) return;
+        const minDuration = 0.5;
+
+        if (drag.edge === 'in') {
+            // El borde IZQUIERDO sigue al cursor: trimStart y timelineStart aumentan juntos,
+            // el borde derecho queda fijo. Se deja un hueco temporal que el repack cierra al soltar.
+            const nextStart = clamp(drag.startTrimStart + delta, 0, drag.startTrimEnd - minDuration);
+            const appliedDelta = nextStart - drag.startTrimStart;
+            clip.trimStart = nextStart;
+            clip.timelineStart = Math.max(0, drag.startTimelineStart + appliedDelta);
+        } else {
+            clip.trimEnd = clamp(drag.startTrimEnd + delta, drag.startTrimStart + minDuration, clip.duration || 9999);
+            repackTimelineClips();
+        }
+
+        // Actualizar solo el estilo del bloque sin reconstruir el DOM
+        const idx = state.clips.indexOf(clip);
+        const blockEl = trackVideoEl && trackVideoEl.querySelector('[data-clip-id="' + drag.id + '"]');
+        if (blockEl) {
+            blockEl.style.left = ((getIntroOffset() + absClipStart(idx)) * tlPxPerSec) + 'px';
+            blockEl.style.width = Math.max(getClipTrimDuration(clip) * tlPxPerSec, 4) + 'px';
+        }
+        if (drag.edge === 'in') {
+            // Los bloques siguientes NO se mueven durante el drag: se ve el hueco temporal
+            if (clip.videoEl && !isPlaying) { clip.videoEl.currentTime = clip.trimStart; drawFrame(); }
+        } else {
+            // Al recortar el final sí reposicionamos los siguientes (se acercan)
+            state.clips.forEach((c, i) => {
+                if (c.id === drag.id) return;
+                const el = trackVideoEl && trackVideoEl.querySelector('[data-clip-id="' + c.id + '"]');
+                if (el) el.style.left = ((getIntroOffset() + absClipStart(i)) * tlPxPerSec) + 'px';
+            });
+        }
+        updateTimeDisplay();
+        updateTrimDurationLabel(clip);
+    } else if (drag.kind === 'audio') {
+        const track = state.audioTracks.find(t => t.id === drag.id);
+        if (!track) return;
+        if (drag.edge === 'in') {
+            const nt = clamp(drag.origTrimStart + delta, 0, drag.origTrimEnd - 0.05);
+            track.timelineStart = Math.max(0, drag.origStart + (nt - drag.origTrimStart));
+            track.trimStart = nt;
+        } else {
+            track.trimEnd = clamp(drag.origTrimEnd + delta, track.trimStart + 0.05, track.duration || 9999);
+        }
+        // Actualizar solo el estilo del bloque sin reconstruir el DOM
+        const blockEl = trackAudioEl && trackAudioEl.querySelector('[data-track-id="' + drag.id + '"]');
+        if (blockEl) {
+            blockEl.style.left = ((track.timelineStart || 0) * tlPxPerSec) + 'px';
+            const dur = Math.max(0, (track.trimEnd || 0) - (track.trimStart || 0)) || track.duration || 1;
+            blockEl.style.width = Math.max(dur * tlPxPerSec, 5) + 'px';
+        }
     }
-
-    renderTimelineClips();
-    updateTrimPreview(clip);
-    updateTrimDurationLabel(clip);
 }
 
 function finishTrimDrag() {
     if (!activeTrimDrag) return;
     activeTrimDrag = null;
     document.body.classList.remove('trimming-clip');
+    // Cerrar el hueco temporal dejado por el trim-in (timeline secuencial)
+    repackTimelineClips();
     scheduleAutoSave();
     renderClipsList();
 }
 
 function updateTrimDurationLabel(clip) {
-    const segment = timelineClips?.querySelector('[data-clip-id="' + clip.id + '"]');
-    if (segment) {
-        const label = segment.querySelector('.timeline-clip-label');
-        if (label) label.textContent = 'Clip ' + (state.clips.indexOf(clip) + 1) + ' · ' + formatTime(getClipTrimDuration(clip));
+    const block = trackVideoEl ? trackVideoEl.querySelector('[data-clip-id="' + clip.id + '"]') : null;
+    if (block) {
+        const label = block.querySelector('.tl-blabel');
+        if (label) {
+            const idx = state.clips.indexOf(clip);
+            label.textContent = (clip.rankingPosition ? '#' + clip.rankingPosition + ' ' : '') + (clip.numberText || ('Clip ' + (idx + 1))) + ' · ' + formatTime(getClipTrimDuration(clip));
+        }
     }
     const cardLabel = document.querySelector('[data-duration-clip="' + clip.id + '"]');
     if (cardLabel) {
@@ -2113,8 +2784,7 @@ function updateTrimDurationLabel(clip) {
     }
 }
 
-document.addEventListener('pointermove', updateTrimDrag);
-document.addEventListener('pointerup', finishTrimDrag);
+// (listeners unificados más abajo)
 
 function seekToTime(targetTime) {
     const total = getTimelineScaleDuration();
@@ -2168,10 +2838,9 @@ function seekToTime(targetTime) {
 }
 
 function getTimeFromTimelineX(clientX) {
-    const rect = timelineTrack.getBoundingClientRect();
-    const x = clamp(clientX - rect.left, 0, rect.width);
-    const ratio = x / rect.width;
-    return ratio * getTimelineScaleDuration();
+    if (!tlInner) return 0;
+    const rect = tlInner.getBoundingClientRect();
+    return clamp((clientX - rect.left) / tlPxPerSec, 0, getTimelineScaleDuration());
 }
 
 function handleTimelineSeek(e) {
@@ -2179,46 +2848,557 @@ function handleTimelineSeek(e) {
     seekToTime(getTimeFromTimelineX(e.clientX));
 }
 
-timelineTrack.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.trim-handle, .timeline-handle') || isExporting || state.clips.length === 0) return;
+if (tlInner) tlInner.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.tl-block, .trim-handle, .caption-del, .tl-delbtn, .tl-ph-cap')) return;
+    if (isExporting || state.clips.length === 0) return;
     e.preventDefault();
     isDraggingTimeline = true;
     handleTimelineSeek(e);
 });
 
-timelineHandle.addEventListener('pointerdown', e => {
+// Playhead: arrastrar solo desde el triángulo superior (cap)
+if (tlPlayheadEl) {
+    const cap = tlPlayheadEl.querySelector('.tl-ph-cap');
+    if (cap) cap.addEventListener('pointerdown', (e) => {
+        if (isExporting || state.clips.length === 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        isDraggingTimeline = true;
+        handleTimelineSeek(e);
+    });
+}
+
+if (tlRulerCanvas) tlRulerCanvas.addEventListener('pointerdown', (e) => {
     if (isExporting || state.clips.length === 0) return;
     e.preventDefault();
     e.stopPropagation();
-    isDraggingPlayback = true;
-    timelineHandle.setPointerCapture?.(e.pointerId);
-    handleTimelineSeek(e);
+    isDraggingTimeline = true;
+    const rect = tlScroll.getBoundingClientRect();
+    seekToTime(clamp((e.clientX - rect.left + tlScroll.scrollLeft) / tlPxPerSec, 0, getTimelineScaleDuration()));
 });
 
+// ─── Arrastre unificado de bloques ───
 document.addEventListener('pointermove', (e) => {
+    if (activeTrimDrag) { updateTrimDrag(e); return; }
+    if (tlDrag) { updateTlDrag(e); return; }
     if (isDraggingTimeline) {
         e.preventDefault();
         handleTimelineSeek(e);
     }
-    if (isDraggingPlayback) {
-        e.preventDefault();
-        handleTimelineSeek(e);
-    }
 });
 
-document.addEventListener('pointerup', () => {
+document.addEventListener('pointerup', (e) => {
+    if (activeTrimDrag) { finishTrimDrag(); return; }
+    if (tlDrag) { endTlDrag(e); return; }
     if (isDraggingTimeline) {
         isDraggingTimeline = false;
         // If it was playing, resume from new position
-        if (isPlaying) playCurrentClip();
+        if (isPlaying && !isExporting) playCurrentClip();
     }
-    isDraggingPlayback = false;
+});
+
+// ═══════════════════════════════════════════════════════════
+// ████  TIMELINE PRO: zoom · regla · miniaturas · FX · split ████
+// ═══════════════════════════════════════════════════════════
+function addTlStaticSeg(track, left, width, label, title, onClick, isOutro) {
+    const seg = document.createElement('div');
+    seg.className = 'tl-block tl-static' + (isOutro ? ' tl-outroseg' : '');
+    seg.style.left = (left * tlPxPerSec) + 'px';
+    seg.style.width = Math.max(width * tlPxPerSec, 6) + 'px';
+    seg.title = title;
+    const lbl = document.createElement('span');
+    lbl.className = 'tl-blabel';
+    lbl.style.position = 'static';
+    lbl.textContent = label;
+    seg.appendChild(lbl);
+    seg.addEventListener('pointerdown', e => { e.stopPropagation(); onClick(); });
+    track.appendChild(seg);
+}
+
+function setZoom(pps) {
+    pps = clamp(pps, 6, 240);
+    const rangeInput = document.getElementById('tlZoomRange');
+    if (!tlScroll) { tlPxPerSec = pps; refreshTL(); return; }
+    const rect = tlScroll.getBoundingClientRect();
+    const anchorTime = (tlScroll.scrollLeft + rect.width / 2) / tlPxPerSec;
+    tlPxPerSec = pps;
+    refreshTL();
+    tlScroll.scrollLeft = Math.max(0, anchorTime * tlPxPerSec - rect.width / 2);
+    if (rangeInput) rangeInput.value = Math.round(tlPxPerSec);
+}
+
+function zoomTimeline(factor) { setZoom(Math.round(tlPxPerSec * factor)); }
+
+function fitZoomTimeline() {
+    if (!tlScroll) return;
+    const rect = tlScroll.getBoundingClientRect();
+    setZoom(clamp((rect.width - 20) / Math.max(getTotalDuration(), 0.5), 6, 240));
+    tlScroll.scrollLeft = 0;
+}
+
+function refreshTL() {
+    syncTlWidths();
+    renderTimelineClips();
+    renderAudioTracks();
+    updateTimelineUI();
+}
+
+function syncTlWidths() {
+    applyTlSize();
+    drawRuler();
+}
+
+// Actualiza el ancho del inner y la variable CSS del grid según el zoom actual
+function tlTotalDuration() { return Math.max(getTimelineScaleDuration(), 0.5); }
+function tlContentWidth() { return Math.max(tlTotalDuration() * tlPxPerSec + 60, tlScroll ? tlScroll.clientWidth : 300); }
+function absClipStart(i) { const c = state.clips[i]; return Number.isFinite(c && c.timelineStart) ? c.timelineStart : 0; }
+function applyTlSize() {
+    if (!tlInner) return;
+    tlInner.style.width = tlContentWidth() + 'px';
+    const steps = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60];
+    let st = steps[steps.length - 1];
+    for (const s of steps) { if (s * tlPxPerSec >= 70) { st = s; break; } }
+    tlInner.style.setProperty('--tl-grid', (st * tlPxPerSec));
+}
+
+function drawRuler() {
+    if (!tlRulerCanvas || !tlScroll) return;
+    const dpr = window.devicePixelRatio || 1;
+    let w = tlRulerCanvas.clientWidth || (tlScroll.clientWidth || 300);
+    if (w < 2) w = 300;
+    const h = 20;
+    tlRulerCanvas.width = Math.max(1, Math.round(w * dpr));
+    tlRulerCanvas.height = Math.round(h * dpr);
+    const c = tlRulerCanvas.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.fillStyle = '#101022';
+    c.fillRect(0, 0, w, h);
+    const scrollLeft = tlScroll.scrollLeft;
+    const steps = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60];
+    let step = steps[steps.length - 1];
+    for (const s of steps) { if (s * tlPxPerSec >= 70) { step = s; break; } }
+    const sub = step / 5;
+    c.strokeStyle = '#3a3a5a';
+    c.fillStyle = '#8888aa';
+    c.font = '9px Segoe UI, sans-serif';
+    c.textBaseline = 'top';
+    c.lineWidth = 1;
+    let t = Math.floor(scrollLeft / tlPxPerSec / sub) * sub;
+    t = Math.round(t * 1000) / 1000;
+    for (; t * tlPxPerSec <= scrollLeft + w; t += sub) {
+        const x = Math.round(t * tlPxPerSec - scrollLeft) + 0.5;
+        const isMajor = Math.abs(t / step - Math.round(t / step)) < 1e-6;
+        c.beginPath();
+        c.moveTo(x, isMajor ? 7 : 13);
+        c.lineTo(x, h);
+        c.stroke();
+        if (isMajor) c.fillText(formatTime(t), x + 3, 2);
+    }
+}
+
+// Snap a playhead/bordes de clips/audios y segundos
+function snapTime(t, exclude) {
+    const candidates = [0, getElapsedTime()];
+    state.clips.forEach((c, i) => { candidates.push(getIntroOffset() + absClipStart(i), getIntroOffset() + absClipStart(i) + getClipTrimDuration(c)); });
+    state.audioTracks.forEach(tr => { candidates.push(tr.timelineStart || 0, (tr.timelineStart || 0) + (tr.trimEnd - tr.trimStart)); });
+    let best = t, bestD = 8 / tlPxPerSec;
+    for (const cand of candidates) {
+        if (exclude !== undefined && Math.abs(cand - exclude) < 1e-6) continue;
+        const d = Math.abs(cand - t);
+        if (d < bestD) { bestD = d; best = cand; }
+    }
+    return best;
+}
+
+// ─── Selección y arrastre de bloques ───
+function selectTlElement(type, id) {
+    tlSelection = { type, id };
+    if (type === 'clip') {
+        const idx = state.clips.findIndex(c => c.id === id);
+        if (idx !== -1 && !isPlaying) { currentClipIndex = idx; renderBlurBarsList(); }
+    } else if (type === 'audio') {
+        // solo selección visual
+    }
+    renderTimelineClips();
+    renderAudioTracks();
+}
+
+function onTlBlockDown(e, target) {
+    if (isExporting) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // Selección visual SIN reconstruir el DOM
+    tlSelection = { type: target.type, id: target.id };
+    if (target.type === 'clip') {
+        const idx = state.clips.findIndex(c => c.id === target.id);
+        if (idx !== -1 && !isPlaying) { currentClipIndex = idx; renderBlurBarsList(); }
+    }
+    updateTlSelectionVisuals();
+
+    const drag = { type: target.type, id: target.id, startX: e.clientX, startY: e.clientY, moved: false, pointerId: e.pointerId };
+    if (target.type === 'clip') drag.index = state.clips.findIndex(c => c.id === target.id);
+    else if (target.type === 'audio') { const tr = state.audioTracks.find(t => t.id === target.id); drag.origStart = tr ? tr.timelineStart : 0; }
+    else if (target.type === 'vo') { const clip = state.clips.find(c => c.id === target.id); drag.origOffset = clip && clip.vo ? (clip.vo.offset || 0) : 0; }
+    tlDrag = drag;
+    // Capturar puntero en el bloque (no en un hijo) para recibir moves incluso fuera
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch (err) {}
+}
+
+// Actualiza solo las clases CSS de selección sin reconstruir el DOM
+function updateTlSelectionVisuals() {
+    document.querySelectorAll('.tl-block.selected').forEach(b => b.classList.remove('selected'));
+    if (!tlSelection) return;
+    let sel = null;
+    if (tlSelection.type === 'clip') sel = trackVideoEl && trackVideoEl.querySelector('[data-clip-id="' + tlSelection.id + '"]');
+    else if (tlSelection.type === 'audio') sel = trackAudioEl && trackAudioEl.querySelector('[data-track-id="' + tlSelection.id + '"]');
+    else if (tlSelection.type === 'vo') sel = trackFxEl && trackFxEl.querySelector('[data-vo-id="' + tlSelection.id + '"]');
+    if (sel) sel.classList.add('selected');
+}
+
+function ensureVoKey(clip) { return clip.id; }
+
+function updateTlDrag(e) {
+    if (!tlDrag) return;
+    const dx = e.clientX - tlDrag.startX;
+    if (!tlDrag.moved && Math.abs(dx) < 6) return;
+    if (!tlDrag.moved) { tlDrag.moved = true; }
+
+    if (tlDrag.type === 'clip') {
+        // Reordenar por arrastre horizontal
+        tlDrag.dropIndex = computeDropIndex(e.clientX, tlDrag.index);
+        showDropIndicator(tlDrag.dropIndex);
+        const el = trackVideoEl.querySelector('[data-clip-id="' + tlDrag.id + '"]');
+        if (el) el.style.transform = 'translateX(' + dx + 'px)';
+    } else if (tlDrag.type === 'audio') {
+        const tr = state.audioTracks.find(t => t.id === tlDrag.id);
+        if (!tr) return;
+        let nt = snapTime(Math.max(0, tlDrag.origStart + dx / tlPxPerSec), tr.timelineStart || 0);
+        tr.timelineStart = nt;
+        const el = trackAudioEl ? trackAudioEl.querySelector('[data-track-id="' + tlDrag.id + '"]') : null;
+        if (el) el.style.left = (nt * tlPxPerSec) + 'px';
+    } else if (tlDrag.type === 'vo') {
+        const clip = state.clips.find(c => c.vo && c.id === tlDrag.id);
+        if (!clip) return;
+        const idx = state.clips.indexOf(clip);
+        const minMs = 0;
+        const maxMs = Math.max(0, (getClipTrimDuration(clip)) * 1000);
+        let off = clamp(tlDrag.origOffset + dx / tlPxPerSec * 1000, minMs, maxMs);
+        clip.vo.offset = Math.round(off);
+        const el = trackFxEl ? trackFxEl.querySelector('[data-vo-id="' + clip.id + '"]') : null;
+        if (el) el.style.left = ((getIntroOffset() + absClipStart(idx) + clip.vo.offset / 1000) * tlPxPerSec) + 'px';
+    }
+}
+
+function computeDropIndex(clientX, draggedIndex) {
+    if (!trackVideoEl) return draggedIndex;
+    const px = clientX - trackVideoEl.getBoundingClientRect().left;
+    let x = getIntroOffset() * tlPxPerSec;
+    let insert = 0; // posición de inserción entre los demás clips
+    for (let i = 0; i < state.clips.length; i++) {
+        if (i === draggedIndex) continue;
+        const w = getClipTrimDuration(state.clips[i]) * tlPxPerSec;
+        if (px >= x + w / 2) insert++;
+        x += w;
+    }
+    return clamp(insert, 0, state.clips.length - 1);
+}
+
+let dropIndicatorEl = null;
+function showDropIndicator(index) {
+    if (!trackVideoEl) return;
+    if (!dropIndicatorEl) { dropIndicatorEl = document.createElement('div'); dropIndicatorEl.className = 'drop-indicator'; trackVideoEl.appendChild(dropIndicatorEl); }
+    let x = getIntroOffset() * tlPxPerSec;
+    for (let i = 0; i < index && i < state.clips.length; i++) x += getClipTrimDuration(state.clips[i]) * tlPxPerSec;
+    dropIndicatorEl.style.left = x + 'px';
+    dropIndicatorEl.style.display = 'block';
+}
+function hideDropIndicator() {
+    if (dropIndicatorEl) { dropIndicatorEl.remove(); dropIndicatorEl = null; }
+}
+
+function endTlDrag(e) {
+    const drag = tlDrag;
+    tlDrag = null;
+    hideDropIndicator();
+    if (!drag) return;
+
+    if (drag.type === 'clip' && drag.moved) {
+        // Limpiar transform visual
+        const el = trackVideoEl && trackVideoEl.querySelector('[data-clip-id="' + drag.id + '"]');
+        if (el) el.style.transform = '';
+        const insert = typeof drag.dropIndex === 'number' ? drag.dropIndex : null;
+        if (insert !== null && insert !== drag.index && drag.index >= 0) {
+            const [moved] = state.clips.splice(drag.index, 1);
+            state.clips.splice(clamp(insert, 0, state.clips.length), 0, moved);
+            repackTimelineClips();
+            currentClipIndex = state.clips.indexOf(moved);
+            renderClipsList();
+            scheduleAutoSave();
+        } else {
+            renderTimelineClips();
+        }
+    } else if (drag.type === 'audio' && drag.moved) {
+        const tr = state.audioTracks.find(t => t.id === drag.id);
+        if (tr) { tr.timelineStart = snapTime(Math.max(0, tr.timelineStart), tr.timelineStart); }
+        renderAudioTracks();
+        scheduleAutoSave();
+    } else if (drag.type === 'vo' && drag.moved) {
+        renderClipsList();
+        scheduleAutoSave();
+    } else if (!drag.moved) {
+        // Clic simple sin arrastre
+        if (drag.type === 'clip') seekToTime(getIntroOffset() + absClipStart(state.clips.findIndex(c => c.id === drag.id)));
+    }
+    // Re-render completo para mostrar trim handles de la selección
+    renderTimelineClips();
+    renderAudioTracks();
+    // Liberar pointer capture
+    try { e.target.releasePointerCapture?.(e.pointerId); } catch (err) {}
+}
+
+// ─── Miniaturas de video (tira de frames) ───
+function ensureAllClipThumbs() {
+    state.clips.forEach(c => { if (!c.thumbs) ensureClipThumbs(c); });
+}
+
+function seekVideoOnce(v, t) {
+    return new Promise(resolve => {
+        let done = false;
+        const fin = () => { if (!done) { done = true; v.onseeked = null; resolve(); } };
+        v.onseeked = fin;
+        try { v.currentTime = t; } catch (err) { fin(); }
+        setTimeout(fin, 3000);
+    });
+}
+
+async function ensureClipThumbs(clip) {
+    if (clip.thumbs || !clip.url || clip._thumbsLoading) return;
+    clip._thumbsLoading = true;
+    try {
+        const v = document.createElement('video');
+        v.muted = true;
+        v.playsInline = true;
+        v.preload = 'auto';
+        v.crossOrigin = 'anonymous';
+        v.src = clip.url;
+        // Esperar a que el video tenga datos suficientes para dibujar (no solo metadata)
+        await new Promise((res) => {
+            if (v.readyState >= 2) return res();
+            v.addEventListener('canplay', res, { once: true });
+            v.addEventListener('error', res, { once: true });
+            setTimeout(res, 6000);
+        });
+        if (!v.videoWidth || !v.videoHeight) {
+            // Forzar carga con play() + pause() inmediato
+            try { await v.play(); v.pause(); } catch (err) {}
+            await new Promise(r => setTimeout(r, 300));
+        }
+        if (!v.videoWidth || !v.videoHeight) { clip._thumbsLoading = false; return; }
+
+        const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : (clip.duration || 1);
+        const n = 4, cw = 36, ch = 64;
+        const strip = document.createElement('canvas');
+        strip.width = cw * n; strip.height = ch;
+        const sc = strip.getContext('2d');
+        let captured = 0;
+        for (let k = 0; k < n; k++) {
+            const tt = clamp((dur * (k + 0.5)) / n, 0, Math.max(0, dur - 0.05));
+            await seekVideoOnce(v, tt);
+            if (!v.videoWidth || !v.videoHeight) continue;
+            const vw = v.videoWidth, vh = v.videoHeight;
+            const targetRatio = cw / ch;
+            let sw = vw, sh = vh;
+            if (vw / vh > targetRatio) sw = vh * targetRatio; else sh = vw / targetRatio;
+            sc.drawImage(v, (vw - sw) / 2, (vh - sh) / 2, sw, sh, k * cw, 0, cw, ch);
+            captured++;
+        }
+        if (captured === 0) { clip._thumbsLoading = false; return; }
+        clip.thumbs = [strip.toDataURL('image/jpeg', 0.55)];
+        putItem(STORE_VIDEOS, 'thumbs_' + clip.id, { img: clip.thumbs[0] }).catch(() => {});
+        renderTimelineClips();
+    } catch (err) {
+        // silencioso
+    } finally {
+        clip._thumbsLoading = false;
+    }
+}
+
+// ─── Pista FX: voz en off · freezes · SFX · voz del outro ───
+function renderFxTrack() {
+    if (!trackFxEl) return;
+    trackFxEl.innerHTML = '';
+    const introOffset = getIntroOffset();
+    const sd = state.soundDesign;
+    const lastIdx = state.clips.length - 1;
+
+    // Voz en off por clip (arrastrable → ajusta offset)
+    state.clips.forEach((clip, i) => {
+        const vo = clip.vo;
+        if (!vo || vo.enabled === false) return;
+        if (!vo.fileName && !vo.text) return;
+        const start = introOffset + absClipStart(i) + (vo.offset || 0) / 1000;
+        const dur = Math.min(vo.duration || Math.max(1, (vo.text || '').split(/\s+/).filter(Boolean).length * 0.35), Math.max(getClipTrimDuration(clip), 1));
+        const sel = tlSelection && tlSelection.type === 'vo' && tlSelection.id === clip.id;
+        const b = document.createElement('div');
+        b.className = 'tl-block tl-fblock' + (sel ? ' selected' : '');
+        b.dataset.voId = clip.id;
+        b.style.left = (start * tlPxPerSec) + 'px';
+        b.style.width = Math.max(dur * tlPxPerSec, 8) + 'px';
+        b.title = '🎙️ Voz en off clip ' + (i + 1) + (vo.text ? ': "' + vo.text + '"' : '') + ' — arrastra para ajustar el offset';
+        b.textContent = '🎙️ ' + (i + 1);
+        b.addEventListener('pointerdown', e => onTlBlockDown(e, { type: 'vo', id: clip.id }));
+        trackFxEl.appendChild(b);
+    });
+
+    // Bandas de freeze frame
+    state.clips.forEach((clip, i) => {
+        (clip.freezes || []).forEach(ff => {
+            const band = document.createElement('div');
+            band.className = 'tl-freeze-band';
+            band.style.left = ((introOffset + absClipStart(i) + ff.t) * tlPxPerSec) + 'px';
+            band.style.width = Math.max(ff.dur * tlPxPerSec, 3) + 'px';
+            band.title = '❄ Freeze: "' + (ff.text || '') + '" (' + ff.dur.toFixed(1) + 's en t=' + ff.t.toFixed(1) + 's)';
+            trackFxEl.appendChild(band);
+        });
+    });
+
+    // Marcadores SFX
+    function addMark(time, cls, letter, title) {
+        const m = document.createElement('div');
+        m.className = 'tl-sfx-mark ' + cls;
+        m.style.left = (time * tlPxPerSec) + 'px';
+        m.title = title;
+        m.innerHTML = '<span>' + letter + '</span>';
+        trackFxEl.appendChild(m);
+    }
+    if (sd.bassHit && sd.bassHit.enabled) {
+        state.clips.forEach((clip, i) => {
+            const dur = getClipTrimDuration(clip);
+            if (dur > 1) addMark(introOffset + absClipStart(i) + dur - 0.4, 'tl-sfx-bass', 'B', 'Golpe de bajos · final del clip ' + (i + 1));
+        });
+    }
+    if (sd.transitionSfx && sd.transitionSfx.enabled) {
+        for (let i = 1; i < state.clips.length; i++) {
+            addMark(introOffset + absClipStart(i), 'tl-sfx-trans', 'T', 'SFX de transición · corte ' + i + '→' + (i + 1));
+        }
+    }
+    if (sd.stingReveal && sd.stingReveal.enabled && lastIdx > 0) {
+        addMark(introOffset + absClipStart(lastIdx), 'tl-sfx-sting', 'S', 'Sting · revelación #1');
+    }
+
+    // Voz del outro
+    if (state.outro.enabled && state.outro.voiceFileName) {
+        const st = introOffset + getClipsEnd();
+        const b = document.createElement('div');
+        b.className = 'tl-block tl-fblock';
+        b.style.left = (st * tlPxPerSec) + 'px';
+        b.style.width = Math.max((state.outro.durationSec || 5) * tlPxPerSec, 10) + 'px';
+        b.title = '🔔 Voz del outro: ' + state.outro.voiceFileName;
+        b.textContent = '🔔 voz outro';
+        trackFxEl.appendChild(b);
+    }
+}
+
+// ─── Dividir y eliminar desde el timeline ───
+function splitSelectedTl() {
+    if (isExporting || isPlaying) return;
+    if (!tlSelection) return alert('Selecciona un bloque del timeline primero.');
+    const t = getElapsedTime();
+
+    if (tlSelection.type === 'clip') {
+        const idx = state.clips.findIndex(c => c.id === tlSelection.id);
+        if (idx === -1) return;
+        const src = state.clips[idx];
+        const rel = t - getIntroOffset() - absClipStart(idx);
+        const dur = getClipTrimDuration(src);
+        if (rel < 0.15 || rel > dur - 0.15) return alert('Coloca el playhead dentro del clip seleccionado para dividirlo.');
+
+        const nc = {
+            id: generateId(), file: src.file, videoEl: null, url: '',
+            trimStart: src.trimStart + rel, trimEnd: src.trimEnd, duration: src.duration,
+            percentage: '',
+            captions: src.captions.filter(cp => cp.from >= rel).map(cp => ({ text: cp.text, from: Math.round((cp.from - rel) * 10) / 10, to: Math.round((cp.to - rel) * 10) / 10 })),
+            captionsEnabled: src.captionsEnabled,
+            numberText: '', numberColor: src.numberColor, rankingPosition: src.rankingPosition,
+            numberPos: null, timelineStart: 0,
+            panX: src.panX, panY: src.panY, volume: src.volume,
+            blurBars: [], freezes: [], vo: null
+        };
+        // Elemento de video independiente para la parte derecha
+        if (src.url) {
+            const v = document.createElement('video');
+            v.preload = 'auto'; v.muted = true; v.playsInline = true; v.src = src.url;
+            videoContainer.appendChild(v);
+            nc.videoEl = v;
+            v.addEventListener('loadedmetadata', () => {
+                nc.duration = v.duration;
+                nc.trimEnd = Math.min(nc.trimEnd, v.duration);
+                repackTimelineClips();
+                renderClipsList();
+            });
+        }
+        // El clip izquierdo conserva lo anterior al corte
+        src.trimEnd = src.trimStart + rel;
+        src.captions = src.captions.filter(cp => cp.to <= rel).map(cp => cp);
+
+        state.clips.splice(idx + 1, 0, nc);
+        repackTimelineClips();
+        tlSelection = { type: 'clip', id: nc.id };
+        renderClipsList();
+        scheduleAutoSave();
+    } else if (tlSelection.type === 'audio') {
+        const idx = state.audioTracks.findIndex(tr => tr.id === tlSelection.id);
+        if (idx === -1) return;
+        const src = state.audioTracks[idx];
+        const localCut = t - (src.timelineStart || 0);
+        const avail = (src.trimEnd - src.trimStart);
+        if (localCut < 0.05 || localCut > avail - 0.05) return alert('Coloca el playhead sobre el audio seleccionado para dividirlo.');
+
+        const right = {
+            id: 'aud_' + (++audioTrackIdCounter) + '_' + Date.now(),
+            file: src.file, url: src.url, audioEl: null,
+            name: src.name + ' (2)', duration: src.duration,
+            timelineStart: (src.timelineStart || 0) + localCut,
+            trimStart: src.trimStart + localCut, trimEnd: src.trimEnd,
+            volume: src.volume
+        };
+        const audio = new Audio(right.url);
+        audio.preload = 'auto'; audio.muted = true;
+        videoContainer.appendChild(audio);
+        right.audioEl = audio;
+        audio.addEventListener('loadedmetadata', () => { if (right.duration === 0) right.duration = audio.duration; });
+
+        src.trimEnd = src.trimStart + localCut;
+        state.audioTracks.splice(idx + 1, 0, right);
+        tlSelection = { type: 'audio', id: right.id };
+        renderAudioTracks();
+        renderTimelineClips();
+        scheduleAutoSave();
+    }
+}
+
+function deleteSelectedTl() {
+    if (isExporting || !tlSelection) return;
+    if (tlSelection.type === 'clip') removeClip(tlSelection.id);
+    else if (tlSelection.type === 'audio') removeAudioTrack(tlSelection.id);
+    tlSelection = null;
+    renderTimelineClips();
+    renderAudioTracks();
+}
+
+document.addEventListener('keydown', (e) => {
+    if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    if (isExporting) return;
+    if (e.key === 's' || e.key === 'S') splitSelectedTl();
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelectedTl(); }
 });
 
 // ─── STYLE ENGINE: freezes · SFX · voz en off · outro ───
 function resetStyleEngineState() {
     freezeRuntime = {};
     sfxFired = { bassIdx: -1, transIdx: -1, stingIdx: -1 };
+    stopBleep();
 }
 
 function attachVoAudioEl(clip) {
@@ -2262,9 +3442,115 @@ function playSfx(kind) {
     el.play().catch(() => {});
 }
 
+// ═══════════════════════════════════════════════════════════
+// ████  CENSURA DE MALAS PALABRAS (inglés)  ████
+// Silencia la fuente dentro de cada marca no excluida y dispara
+// el beep importado por el usuario. Las marcas están en segundos
+// ABSOLUTOS del archivo (video o voz), igual que currentTime.
+// ═══════════════════════════════════════════════════════════
+function attachBleepEl() {
+    if (!state.censor._file) return;
+    if (bleepEl) { bleepEl.pause(); bleepEl.remove(); }
+    bleepEl = new Audio(URL.createObjectURL(state.censor._file));
+    bleepEl.preload = 'auto';
+    bleepEl.muted = true;
+    videoContainer.appendChild(bleepEl);
+}
+
+function normalizeCensorWord(w) {
+    return String(w || '').toLowerCase().replace(/[^a-z0-9']/g, '').replace(/'/g, '');
+}
+
+function getCensorWordSet() {
+    const set = new Set();
+    (state.censor.words || []).forEach(w => { const n = normalizeCensorWord(w); if (n) set.add(n); });
+    return set;
+}
+
+function activeCensorMark(marks, t) {
+    if (!marks || !marks.length) return null;
+    for (const m of marks) {
+        if (m.excluded) continue;
+        if (t >= m.from && t < m.to) return m;
+    }
+    return null;
+}
+
+function stopBleep() {
+    if (bleepEl && !bleepEl.paused) bleepEl.pause();
+    if (bleepEl) bleepEl.loop = false;
+    bleepActiveKey = null;
+}
+
+function startBleep(key, remainingSec) {
+    if (!bleepEl || !state.censor._file) return;
+    if (bleepActiveKey === key && !bleepEl.paused) return;
+    bleepActiveKey = key;
+    try { bleepEl.currentTime = 0; } catch(e) {}
+    bleepEl.muted = false;
+    bleepEl.volume = state.censor.bleepVolume ?? 0.9;
+    // Si la palabra dura más que el beep, se repite en loop hasta salir de la marca
+    bleepEl.loop = (isFinite(bleepEl.duration) && bleepEl.duration > 0 && bleepEl.duration < remainingSec);
+    bleepEl.play().catch(() => {});
+}
+
+// Devuelve el volumen original de un elemento que la censura silenció
+function restoreCensorVolumes(clip) {
+    if (!clip) return;
+    if (clip.videoEl && clip.videoEl._censorMuted) {
+        clip.videoEl._censorMuted = false;
+        clip.videoEl.volume = clip.volume ?? 1.0;
+    }
+    if (clip.vo && clip.vo.audioEl && clip.vo.audioEl._censorMuted) {
+        clip.vo.audioEl._censorMuted = false;
+        clip.vo.audioEl.volume = 1.0;
+    }
+}
+
+// Tick del motor: se llama en cada frame de preview y de export
+function tickCensorEngine() {
+    const clip = state.clips[currentClipIndex];
+    if (!state.censor.enabled || !clip) { restoreCensorVolumes(clip); stopBleep(); return; }
+
+    let anyActive = false;
+
+    // Audio del video del clip
+    if (clip.videoEl && !clip.videoEl.paused) {
+        const m = activeCensorMark(clip.censorMarks, clip.videoEl.currentTime);
+        if (m) {
+            clip.videoEl.volume = 0;
+            clip.videoEl._censorMuted = true;
+            startBleep('v_' + clip.id + '_' + m.id, Math.max(0.05, m.to - clip.videoEl.currentTime));
+            anyActive = true;
+        } else if (clip.videoEl._censorMuted) {
+            clip.videoEl._censorMuted = false;
+            clip.videoEl.volume = clip.volume ?? 1.0;
+        }
+    }
+
+    // Voz en off del clip
+    const vo = clip.vo;
+    if (vo && vo.audioEl && !vo.audioEl.paused) {
+        const m = activeCensorMark(vo.censorMarks, vo.audioEl.currentTime);
+        if (m) {
+            vo.audioEl.volume = 0;
+            vo.audioEl._censorMuted = true;
+            startBleep('vo_' + clip.id + '_' + m.id, Math.max(0.05, m.to - vo.audioEl.currentTime));
+            anyActive = true;
+        } else if (vo.audioEl._censorMuted) {
+            vo.audioEl._censorMuted = false;
+            vo.audioEl.volume = 1.0;
+        }
+    }
+
+    if (!anyActive) stopBleep();
+}
+
 function pauseAllStyleAudio() {
     state.clips.forEach(c => { if (c.vo && c.vo.audioEl && !c.vo.audioEl.paused) c.vo.audioEl.pause(); });
     Object.values(sfxEls).forEach(el => { if (el && !el.paused) el.pause(); });
+    if (bleepEl && !bleepEl.paused) { bleepEl.pause(); bleepEl.muted = true; }
+    bleepActiveKey = null;
     if (outroVoiceEl && !outroVoiceEl.paused) { outroVoiceEl.pause(); outroVoiceEl.muted = true; }
 }
 
@@ -2351,41 +3637,63 @@ function stopOutroPhase() {
     if (outroVoiceEl) { outroVoiceEl.pause(); outroVoiceEl.muted = true; }
 }
 
+// Pre-carga el clip siguiente: seek a su trimStart justo antes de la transición,
+// así el cambio de clip no congeló frames esperando seek+buffer (export y preview).
+function preloadNextClip() {
+    const cur = state.clips[currentClipIndex];
+    const next = state.clips[currentClipIndex + 1];
+    if (!cur || !cur.videoEl || !next || !next.videoEl || next._preloaded) return;
+    const remaining = (cur.trimEnd || 0) - cur.videoEl.currentTime;
+    if (remaining > 0.5 || cur.videoEl.paused) return;
+    next._preloaded = true;
+    const seekToStart = () => {
+        try { if (next.videoEl.currentTime !== next.trimStart) next.videoEl.currentTime = next.trimStart; } catch(e) {}
+    };
+    if (next.videoEl.readyState >= 1) seekToStart();
+    else next.videoEl.addEventListener('loadedmetadata', seekToStart, { once: true });
+}
+
 async function playCurrentClip() {
     if (currentClipIndex >= state.clips.length) {
-        if (isExporting) { isPlaying = false; exportRecorder?.stop(); }
+        if (isExporting) { isPlaying = false; stopExportRecording(); }
         else stopPlayback();
         return;
     }
     const clip = state.clips[currentClipIndex];
     if (!clip || !clip.videoEl) return;
 
-    // Wait for video to be ready (without forcing a reload)
-    if (clip.videoEl.readyState < 2) {
-        await new Promise((resolve) => {
-            const onReady = () => { clip.videoEl.removeEventListener('canplay', onReady); resolve(); };
-            clip.videoEl.addEventListener('canplay', onReady);
-            setTimeout(() => { clip.videoEl.removeEventListener('canplay', onReady); resolve(); }, 5000);
+    clip._starting = true;
+    try {
+        // Wait for video to be ready (without forcing a reload)
+        if (clip.videoEl.readyState < 2) {
+            await new Promise((resolve) => {
+                const onReady = () => { clip.videoEl.removeEventListener('canplay', onReady); resolve(); };
+                clip.videoEl.addEventListener('canplay', onReady);
+                setTimeout(() => { clip.videoEl.removeEventListener('canplay', onReady); resolve(); }, 5000);
+            });
+        }
+
+        // Set to trim start (siempre que esté fuera de la ventana o venga de un seek decorativo del intro)
+        if (clip._introSeek || clip.videoEl.currentTime < clip.trimStart || clip.videoEl.currentTime >= clip.trimEnd) {
+            clip._introSeek = false;
+            clip.videoEl.currentTime = clip.trimStart;
+        }
+
+        try { await clip.videoEl.play(); }
+        catch (e) {
+            await new Promise(r => setTimeout(r, 200));
+            try { await clip.videoEl.play(); } catch(e2) {}
+        }
+
+        // Unmute active clip, mute all others
+        clip.videoEl.muted = false;
+        clip.videoEl.volume = (clip.volume ?? 1.0);
+        state.clips.forEach(c => {
+            if (c.videoEl && c !== clip) { c.videoEl.muted = true; }
         });
+    } finally {
+        clip._starting = false;
     }
-
-    // Set to trim start
-    if (clip.videoEl.currentTime < clip.trimStart || clip.videoEl.currentTime >= clip.trimEnd) {
-        clip.videoEl.currentTime = clip.trimStart;
-    }
-
-    try { await clip.videoEl.play(); }
-    catch (e) {
-        await new Promise(r => setTimeout(r, 200));
-        try { await clip.videoEl.play(); } catch(e2) {}
-    }
-
-    // Unmute active clip, mute all others
-    clip.videoEl.muted = false;
-    clip.videoEl.volume = (clip.volume ?? 1.0);
-    state.clips.forEach(c => {
-        if (c.videoEl && c !== clip) { c.videoEl.muted = true; }
-    });
 }
 
 function updatePlaybackState() {
@@ -2395,6 +3703,7 @@ function updatePlaybackState() {
         syncAudioPlayback(elapsed);
         if (elapsed >= state.intro.duration) {
             isInIntro = false;
+            stopIntroBgClip();
             if (introAudioEl) { introAudioEl.pause(); introAudioEl.muted = true; }
             currentClipIndex = 0;
             playCurrentClip();
@@ -2413,9 +3722,13 @@ function updatePlaybackState() {
     syncAudioPlayback(elapsed);
     tickStyleEngine();
     syncVoiceovers(elapsed);
-    if (clip.videoEl.ended || clip.videoEl.currentTime >= clip.trimEnd) {
+    tickCensorEngine();
+    preloadNextClip();
+    if (!clip._starting && !clip.videoEl.seeking && (clip.videoEl.ended || clip.videoEl.currentTime >= clip.trimEnd)) {
         clip.videoEl.muted = true;
         clip.videoEl.pause();
+        // Aparcar el clip en su inicio para que el próximo replay no se salte ninguna parte
+        try { clip.videoEl.currentTime = clip.trimStart; } catch(e) {}
         currentClipIndex++;
         if (currentClipIndex < state.clips.length) playCurrentClip();
         else if (getOutroOffset() > 0) startOutroPhase();
@@ -2427,12 +3740,17 @@ function startIntro() {
     isInIntro = true;
     introStartTime = performance.now();
 
-    // Seek a random clip to a random position for blurred background
-    const clipsWithVideo = state.clips.filter(c => c.videoEl && c.videoEl.readyState >= 2);
-    if (clipsWithVideo.length > 0) {
-        const randomClip = clipsWithVideo[Math.floor(Math.random() * clipsWithVideo.length)];
-        const randomTime = Math.random() * (randomClip.duration || 0);
-        try { randomClip.videoEl.currentTime = randomTime; randomClip.videoEl.pause(); } catch(e) {}
+    // Reproducir el video de fondo elegido desde su inicio durante la intro
+    const bgClip = getIntroBgClip();
+    if (bgClip && bgClip.videoEl) {
+        try {
+            bgClip.videoEl.currentTime = bgClip.trimStart || 0;
+        } catch(e) {}
+        bgClip.videoEl.muted = state.intro.bgMuted !== false;
+        bgClip.videoEl.volume = (bgClip.volume ?? 1.0);
+        bgClip.videoEl.play().catch(() => {});
+        // Marcar para que playCurrentClip lo rebobine a trimStart antes de reproducirlo
+        bgClip._introSeek = true;
     }
 
     // Play intro audio if available
@@ -2441,6 +3759,14 @@ function startIntro() {
         introAudioEl.muted = false;
         introAudioEl.volume = 1.0;
         introAudioEl.play().catch(() => {});
+    }
+}
+
+function stopIntroBgClip() {
+    const bgClip = getIntroBgClip();
+    if (bgClip && bgClip.videoEl) {
+        try { bgClip.videoEl.pause(); } catch(e) {}
+        bgClip.videoEl.muted = true;
     }
 }
 
@@ -2488,31 +3814,318 @@ function drawExportFrame() {
     if (isInIntro) {
         drawIntroFrame(exportCtx, 1);
         updateExportProgress();
-        return;
+        return true;
     }
     if (isInOutro) {
         drawOutroFrame(exportCtx, 1);
         updateExportProgress();
-        return;
+        return true;
     }
     exportCtx.fillStyle = '#000'; exportCtx.fillRect(0, 0, EXPORT_W, EXPORT_H);
     const clip = state.clips[currentClipIndex];
-    if (clip) drawVideoCover(exportCtx, clip, 0, 0, EXPORT_W, EXPORT_H, 1);
+    // Dibujar el video del clip actual aunque esté en preparación: si aún no
+    // tiene frame, se retiene el último (hold) para no congelar el timeline
+    // mientras el audio avanza. Esto mantiene el video y el audio en sync.
+    const drew = clip ? drawVideoContain(exportCtx, clip, 0, 0, EXPORT_W, EXPORT_H, 1) : false;
+    if (!drew && exportHoldCanvas) exportCtx.drawImage(exportHoldCanvas, 0, 0);
     drawBlurBars(exportCtx, 1);
     drawBarsAndPercentage(exportCtx, 1);
-    drawTitleLine(exportCtx, state.title.line1, state.layout.title1Pos, state.title.font, state.title.fontSize, state.title.textColor, 1);
-    drawTitleLine(exportCtx, state.title.line2, state.layout.title2Pos, state.title.font, state.title.fontSize, state.title.textColor, 1);
+    state.title.lines.forEach((line, i) => {
+        drawTitleLine(exportCtx, line, getTitlePos(i), getTitleLineFont(i), getTitleLineSize(i), state.title.textColor, 1);
+    });
     drawNumbers(exportCtx, 1);
     drawCaptions(exportCtx, 1);
     drawFreezeOverlays(exportCtx, 1);
     drawScreenTexts(exportCtx, 1);
     drawVoCaptions(exportCtx, 1);
     updateExportProgress();
+    return true;
+}
+
+// ─── Captura de frames determinista (ruta MediaRecorder) ───
+let exportVideoTrack = null;   // track manual (requestFrame) si está disponible
+let exportStreamEl = null;     // stream (requestFrame legacy en algunos navegadores)
+let exportKeepAlive = null;    // intervalo de respaldo si la pestaña se oculta
+let exportLastDraw = -1e9;     // marca de tiempo del último frame dibujado
+
+function pushExportFrame() {
+    if (exportVideoTrack && typeof exportVideoTrack.requestFrame === 'function') exportVideoTrack.requestFrame();
+    else if (exportStreamEl && typeof exportStreamEl.requestFrame === 'function') exportStreamEl.requestFrame();
+}
+
+// ═══════════════════════════════════════════════════════════
+// ████  EXPORT WEBCODECS (calidad superior)  ████
+// ═══════════════════════════════════════════════════════════
+// MediaRecorder encodea en tiempo real con codificadores por software en modo
+// "rapidez" (sacrifica calidad para no quedarse atrás). Con WebCodecs se usa el
+// encoder H.264 por hardware cuando existe, en modo calidad, con timestamps CFR
+// exactos (60 fps constantes) y audio AAC/Opus capturado vía AudioWorklet.
+let wcExport = null;   // estado del export WebCodecs activo (null = ruta MediaRecorder)
+
+function webCodecsSupported() {
+    return !!(window.VideoEncoder && window.AudioEncoder && window.Mp4Muxer && window.AudioWorkletNode);
+}
+
+// Worklet que captura el PCM mezclado del grafo de audio del export.
+// No envía nada hasta recibir el comando 'start'. Cada buffer viaja con su
+// tiempo ABSOLUTO del AudioContext (currentTime); el hilo principal lo mapea
+// al reloj del video (performance.now) vía getOutputTimestamp → mismo reloj
+// para las dos pistas, sin deriva ni sesgo de arranque.
+const PCM_TAP_WORKLET = `
+class PCMTapProcessor extends AudioWorkletProcessor {
+    constructor() {
+        super();
+        this._armed = false;
+        this.port.onmessage = (e) => { if (e.data && e.data.cmd === 'start') this._armed = true; };
+    }
+    process(inputs) {
+        if (!this._armed) return true;
+        const input = inputs[0];
+        if (input && input[0] && input[0].length) {
+            const left = new Float32Array(input[0]);
+            const right = new Float32Array(input[1] || input[0]);
+            this.port.postMessage({ ctx: currentTime, left, right }, [left.buffer, right.buffer]);
+        }
+        return true;
+    }
+}
+registerProcessor('pcm-tap', PCMTapProcessor);`;
+
+let pcmWorkletPromise = null;
+function ensurePcmWorklet() {
+    if (!pcmWorkletPromise) {
+        const url = URL.createObjectURL(new Blob([PCM_TAP_WORKLET], { type: 'application/javascript' }));
+        pcmWorkletPromise = exportAudioCtx.audioWorklet.addModule(url)
+            .catch(e => { pcmWorkletPromise = null; throw e; })
+            .finally(() => URL.revokeObjectURL(url));
+    }
+    return pcmWorkletPromise;
+}
+
+// Prepara encoders + muxer del export WebCodecs. Devuelve el objeto de estado
+// o lanza un error (el llamador caerá a la ruta MediaRecorder).
+async function setupWebCodecsExport(srcNodes) {
+    if (!webCodecsSupported() || !exportAudioCtx) throw new Error('WebCodecs o AudioContext no disponibles');
+
+    // ── Video: H.264 (preferir hardware), candidatos de profile/level ──
+    // latencyMode 'realtime': sin B-frames ni lookahead → la cola del encoder
+    // refleja sobrecarga REAL (en hardware se mantiene ~0, así la cadencia de
+    // 60 fps nunca se degrada sin motivo). Con 24 Mbps fijo, la calidad por
+    // frame de un encoder hardware sigue siendo excelente.
+    const vCandidates = ['avc1.640034', 'avc1.640033', 'avc1.4d0034', 'avc1.640028'];
+    let vCfg = null;
+    for (const codec of vCandidates) {
+        for (const hw of ['prefer-hardware', 'no-preference']) {
+            const cfg = {
+                codec, width: EXPORT_W, height: EXPORT_H,
+                bitrate: 24000000, framerate: FPS,
+                latencyMode: 'realtime', hardwareAcceleration: hw,
+                avc: { format: 'avc' }
+            };
+            try {
+                const s = await VideoEncoder.isConfigSupported(cfg);
+                if (s && s.supported) { vCfg = cfg; break; }
+            } catch (e) { /* probar siguiente */ }
+        }
+        if (vCfg) break;
+    }
+    if (!vCfg) throw new Error('Sin encoder H.264 disponible');
+
+    // ── Audio: AAC si se puede (compatibilidad total), si no Opus (48 kHz) ──
+    const sr = exportAudioCtx.sampleRate;
+    let aCfg = null;
+    if (srcNodes.length) {
+        const aCands = [{ codec: 'mp4a.40.2', bitrate: 192000, sampleRate: sr, numberOfChannels: 2 }];
+        if (sr === 48000) aCands.push({ codec: 'opus', bitrate: 192000, sampleRate: sr, numberOfChannels: 2 });
+        for (const c of aCands) {
+            try { const s = await AudioEncoder.isConfigSupported(c); if (s && s.supported) { aCfg = c; break; } } catch (e) { /* siguiente */ }
+        }
+        if (!aCfg) throw new Error('Sin encoder de audio disponible');
+    }
+
+    // ── Tap PCM conectado a todas las fuentes del export ──
+    await ensurePcmWorklet();
+    const tap = new AudioWorkletNode(exportAudioCtx, 'pcm-tap', { numberOfInputs: 1, numberOfOutputs: 0 });
+    srcNodes.forEach(n => { try { n.connect(tap); } catch (e) { /* fuente ya desconectada */ } });
+
+    // ── Muxer MP4 ──
+    const target = new Mp4Muxer.ArrayBufferTarget();
+    const muxer = new Mp4Muxer.Muxer({
+        target,
+        video: { codec: 'avc', width: EXPORT_W, height: EXPORT_H, frameRate: FPS },
+        audio: aCfg ? { codec: aCfg.codec === 'mp4a.40.2' ? 'aac' : 'opus', numberOfChannels: 2, sampleRate: aCfg.sampleRate } : undefined,
+        firstTimestampBehavior: 'cross-track-offset',
+        fastStart: 'in-memory'
+    });
+
+    const venc = new VideoEncoder({
+        output: (chunk, meta) => { try { muxer.addVideoChunk(chunk, meta); } catch (e) { console.error('mux video:', e); } },
+        error: e => console.error('VideoEncoder:', e)
+    });
+    venc.configure(vCfg);
+
+    let aenc = null;
+    if (aCfg) {
+        aenc = new AudioEncoder({
+            output: (chunk, meta) => { try { muxer.addAudioChunk(chunk, meta); } catch (e) { console.error('mux audio:', e); } },
+            error: e => console.error('AudioEncoder:', e)
+        });
+        aenc.configure(aCfg);
+        // Anclaje del reloj de audio por LLEGADA del mensaje: el quantum d.ctx se
+        // renderizó en el instante en que llega su mensaje (±1-2ms de IPC). Se
+        // re-ancla periódicamente para cancelar cualquier deriva entre el reloj
+        // del AudioContext y performance.now (el mismo del video).
+        // NOTA: no usar getOutputTimestamp(): incluye la latencia de salida y en
+        // algunos entornos devuelve valores congelados → sesgo de decenas de ms.
+        let arrivalMap = null;
+        tap.port.onmessage = (ev) => {
+            const w = wcExport;
+            if (!w || !w.recording || w.stopped) return;
+            const d = ev.data;
+            if (!d || d.ctx == null) return;
+            const nowP = performance.now();
+            if (!arrivalMap || d.ctx - arrivalMap.ctx > 0.25) arrivalMap = { ctx: d.ctx, perf: nowP };
+            const tMs = arrivalMap.perf + (d.ctx - arrivalMap.ctx) * 1000 - w.t0;
+            if (tMs < 0) return;   // audio anterior al arranque de la grabación
+            const n = d.left.length;
+            const inter = new Float32Array(n * 2);
+            for (let i = 0; i < n; i++) { inter[2 * i] = d.left[i]; inter[2 * i + 1] = d.right[i]; }
+            try {
+                const ad = new AudioData({
+                    format: 'f32', sampleRate: aCfg.sampleRate,
+                    numberOfFrames: n, numberOfChannels: 2,
+                    timestamp: Math.round(tMs * 1000), data: inter
+                });
+                aenc.encode(ad);
+                ad.close();
+            } catch (e) { console.error('AudioData/encode:', e); }
+        };
+    }
+
+    // recording: false hasta que startWebCodecsRecording() fije el t0 — evita que
+    // tickExportFrame encod-e frames con timestamps arbitrarios durante la preparación
+    return { tap, venc, aenc, muxer, target, t0: 0, vidFrame: 0, recording: false, stopped: false, finalizing: false, cancelled: false, fellBack: false, noFallback: !!window.__wcNoFallback };
+}
+
+// Arranca la grabación WebCodecs: arma el tap de audio y fija el t0 compartido
+function startWebCodecsRecording() {
+    if (!wcExport) return;
+    wcExport.tap.port.postMessage({ cmd: 'start' });
+    wcExport.t0 = performance.now();
+    wcExport.recording = true;   // a partir de aquí se pueden encodar frames
+}
+
+// Encoda el estado actual del canvas de export como frame #idx (CFR exacto)
+function encodeWcFrame(idx) {
+    const w = wcExport;
+    if (!w || w.stopped) return;
+    try {
+        const vf = new VideoFrame(exportCanvas, { timestamp: Math.round(idx * 1e6 / FPS), duration: Math.round(1e6 / FPS) });
+        w.venc.encode(vf, { keyFrame: idx % (FPS * 2) === 0 });
+        vf.close();
+    } catch (e) { console.error('encode frame:', e); }
+}
+
+async function finalizeWebCodecsExport() {
+    const w = wcExport;
+    if (!w || w.finalizing) return;
+    w.finalizing = true;
+    w.stopped = true;
+    try {
+        // Encodar los frames que falten hasta el instante de corte
+        const target = Math.floor((performance.now() - w.t0) * FPS / 1000);
+        while (w.vidFrame <= target) { encodeWcFrame(w.vidFrame); w.vidFrame++; }
+        await w.venc.flush();
+        if (w.aenc) await w.aenc.flush();
+        w.muxer.finalize();
+        if (!w.cancelled) {
+            const blob = new Blob([w.target.buffer], { type: 'video/mp4' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'ranking_video.mp4';
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+            // Validación automática 60 CFR (frames codificados / 60 = segundos)
+            validateExportedFile(blob, w.vidFrame / FPS);
+        }
+    } catch (e) {
+        console.error('Finalizando export WebCodecs:', e);
+        if (!w.cancelled) alert('Hubo un problema al finalizar el video exportado.');
+    }
+    finishExport();
+}
+
+// Finaliza la grabación sea cual sea la ruta activa
+function stopExportRecording() {
+    if (wcExport) finalizeWebCodecsExport();   // async por dentro; no bloquea el loop
+    else exportRecorder?.stop();
+}
+
+// Reintenta el export con la ruta MediaRecorder (cuando el encoder WebCodecs
+// no sostiene la cadencia: p. ej. sin codificación H.264 por hardware)
+let forceRecorderExport = false;
+async function fallbackToRecorderExport() {
+    console.warn('Encoder WebCodecs no sostiene la cadencia: cambiando a MediaRecorder.');
+    const txt = document.getElementById('exportProgressText');
+    if (txt) txt.textContent = 'Reiniciando con el codificador del navegador...';
+    if (wcExport) { wcExport.cancelled = true; wcExport.stopped = true; }
+    finishExport();                       // limpieza total del intento (sin descargar nada)
+    forceRecorderExport = true;
+    try { await startExport(); }
+    catch (e) { console.error('Reintento de export:', e); }
+    forceRecorderExport = false;
+}
+
+// Dibuja y encoda/push-ea frames según la ruta activa.
+// · WebCodecs: CFR exacto — encoda TODOS los frames (step=1 siempre) para
+//   garantizar 60 fps constantes sin saltos. Si el encoder se atrasa, se
+//   duplica el contenido actual del canvas en cada frame faltante (misma
+//   imagen → transición suave idéntica a la preview). Solo se pausa si la
+//   cola está completamente saturada; en cuanto hay hueco se rellena.
+// · MediaRecorder: cadencia fija de FPS + requestFrame manual.
+function tickExportFrame() {
+    if (!isExporting || !exportCtx) return;
+    const now = performance.now();
+    if (wcExport) {
+        const w = wcExport;
+        if (!w.recording) return;   // aún preparando el primer clip: no encodar
+        // Cola completamente saturada: esperar sin avanzar para no crashear el encoder.
+        // En hardware esto prácticamente nunca ocurre (cola ~0-3).
+        if (w.venc.encodeQueueSize > 60) return;
+        // Al arrancar: si la cola se dispara rápido, caer a MediaRecorder (1 vez)
+        if (w.venc.encodeQueueSize > 40 && now - w.t0 < 3000 && !w.noFallback && !w.fellBack) {
+            w.fellBack = true;
+            fallbackToRecorderExport();
+            return;
+        }
+        const target = Math.floor((now - w.t0) * FPS / 1000);
+        if (target < w.vidFrame) return;
+        drawExportFrame();   // refresca el canvas (transiciones: hold del frame anterior si el nuevo no está listo)
+        // Encodar TODOS los frames faltantes uno a uno (step=1 siempre) para
+        // que el video tenga exactamente 60 fps. Si el rAF se perdió algún
+        // beat, el canvas ya tiene el contenido más reciente y se duplica
+        // → suavidad idéntica a la preview.
+        const maxBurst = 8;   // limitar ráfagas por tick para no bloquear el hilo
+        let encoded = 0;
+        while (w.vidFrame <= target && encoded < maxBurst) {
+            if (w.venc.encodeQueueSize > 60) break;
+            encodeWcFrame(w.vidFrame);
+            w.vidFrame++;
+            encoded++;
+        }
+        return;
+    }
+    const frameMs = 1000 / FPS;
+    if (now - exportLastDraw < frameMs - 1.5) return;   // aún no toca el siguiente frame
+    exportLastDraw = now;
+    if (drawExportFrame()) pushExportFrame();
 }
 
 async function startExport() {
     if (state.clips.length === 0) return alert('Agrega al menos un clip.');
+    if (!checkFpsBeforeExport()) return;   // aviso si hay clips sin normalizar a 60 CFR
     stopPlayback();
+    // Asegurar que todas las fuentes usadas estén cargadas antes de capturar frames
+    await preloadUsedFonts();
     isExporting = true; exportChunks = [];
     exportCanvas = document.createElement('canvas');
     exportCanvas.width = EXPORT_W; exportCanvas.height = EXPORT_H;
@@ -2522,8 +4135,18 @@ async function startExport() {
     // Route each clip's audio into a recording destination (not to speakers).
     // MediaElementAudioSourceNode can only be created ONCE per element, so we cache it.
     exportAudioDest = null;
+    const exportSrcNodes = [];   // fuentes conectadas (para ruta WebCodecs: también al tap PCM)
+    const connectSrc = (node) => {
+        try { node.disconnect(); } catch(e) {}
+        node.connect(exportAudioDest);
+        exportSrcNodes.push(node);
+    };
     try {
-        if (!exportAudioCtx) exportAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (!exportAudioCtx) {
+            // 48 kHz: lo exigen Opus y AAC sin remuestreo en la ruta WebCodecs
+            try { exportAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 }); }
+            catch (e) { exportAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+        }
         await exportAudioCtx.resume();
         exportAudioDest = exportAudioCtx.createMediaStreamDestination();
         state.clips.forEach(c => {
@@ -2531,8 +4154,7 @@ async function startExport() {
             if (!c.audioSourceNode) {
                 c.audioSourceNode = exportAudioCtx.createMediaElementSource(c.videoEl);
             }
-            try { c.audioSourceNode.disconnect(); } catch(e) {}
-            c.audioSourceNode.connect(exportAudioDest);
+            connectSrc(c.audioSourceNode);
             c.videoEl.muted = false;
             c.videoEl.volume = (c.volume ?? 1.0);
         });
@@ -2541,8 +4163,7 @@ async function startExport() {
             if (!introAudioEl._audioSourceNode) {
                 introAudioEl._audioSourceNode = exportAudioCtx.createMediaElementSource(introAudioEl);
             }
-            try { introAudioEl._audioSourceNode.disconnect(); } catch(e) {}
-            introAudioEl._audioSourceNode.connect(exportAudioDest);
+            connectSrc(introAudioEl._audioSourceNode);
             introAudioEl.muted = false;
         }
         // Route audio tracks too
@@ -2551,8 +4172,7 @@ async function startExport() {
             if (!t.audioSourceNode) {
                 t.audioSourceNode = exportAudioCtx.createMediaElementSource(t.audioEl);
             }
-            try { t.audioSourceNode.disconnect(); } catch(e) {}
-            t.audioSourceNode.connect(exportAudioDest);
+            connectSrc(t.audioSourceNode);
             t.audioEl.muted = false;
         });
         // Route voiceovers, SFX and outro voice
@@ -2561,41 +4181,84 @@ async function startExport() {
             if (!c.vo.audioSourceNode) {
                 c.vo.audioSourceNode = exportAudioCtx.createMediaElementSource(c.vo.audioEl);
             }
-            try { c.vo.audioSourceNode.disconnect(); } catch(e) {}
-            c.vo.audioSourceNode.connect(exportAudioDest);
+            connectSrc(c.vo.audioSourceNode);
         });
         Object.values(sfxEls).forEach(el => {
             if (!el) return;
             if (!el._audioSourceNode) el._audioSourceNode = exportAudioCtx.createMediaElementSource(el);
-            try { el._audioSourceNode.disconnect(); } catch(e) {}
-            el._audioSourceNode.connect(exportAudioDest);
+            connectSrc(el._audioSourceNode);
         });
+        // Route censor bleep too
+        if (bleepEl) {
+            if (!bleepEl._audioSourceNode) bleepEl._audioSourceNode = exportAudioCtx.createMediaElementSource(bleepEl);
+            connectSrc(bleepEl._audioSourceNode);
+        }
         if (outroVoiceEl) {
             if (!outroVoiceEl._audioSourceNode) outroVoiceEl._audioSourceNode = exportAudioCtx.createMediaElementSource(outroVoiceEl);
-            try { outroVoiceEl._audioSourceNode.disconnect(); } catch(e) {}
-            outroVoiceEl._audioSourceNode.connect(exportAudioDest);
+            connectSrc(outroVoiceEl._audioSourceNode);
         }
     } catch (e) {
         console.error('Audio capture setup failed, exporting without audio:', e);
         exportAudioDest = null;
     }
 
+    // ─── RUTA DE EXPORTACIÓN ───
+    // 1ª opción: WebCodecs (H.264 por hardware, CFR 60fps, máxima calidad).
+    // Si no está disponible o el formato es WebM: ruta clásica MediaRecorder.
     const fmt = document.getElementById('exportFormat').value;
-    let mime = 'video/webm; codecs=vp9'; let ext = 'webm';
-    if(fmt === 'mp4' && MediaRecorder.isTypeSupported('video/mp4')) { mime = 'video/mp4'; ext = 'mp4'; }
-
-    const stream = exportCanvas.captureStream(FPS);
-    if (exportAudioDest) {
-        exportAudioDest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+    wcExport = null;
+    if (fmt === 'mp4' && !forceRecorderExport) {
+        try { wcExport = await setupWebCodecsExport(exportSrcNodes); }
+        catch (e) { console.warn('Export WebCodecs no disponible, usando MediaRecorder:', e); wcExport = null; }
     }
-    exportRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000, audioBitsPerSecond: 128000 });
-    exportRecorder.ondataavailable = e => { if (e.data.size) exportChunks.push(e.data); };
-    exportRecorder.onstop = () => {
-        const url = URL.createObjectURL(new Blob(exportChunks, { type: mime }));
-        const a = document.createElement('a'); a.href = url; a.download = 'ranking_video.' + ext;
-        a.click(); URL.revokeObjectURL(url);
-        finishExport();
-    };
+
+    let mime = null, ext = 'webm', videoBps = 24000000; // bitrate ×2 para 60fps
+    if (!wcExport) {
+        // Selección de codec MediaRecorder: preferir H.264 (calidad/compatibilidad)
+        if (fmt === 'mp4') {
+            const mp4Candidates = [
+                'video/mp4;codecs=avc1.640032,mp4a.40.2', // High profile L5.0
+                'video/mp4;codecs=avc1.640028,mp4a.40.2', // High profile L4.0
+                'video/mp4;codecs=avc1.4d0032,mp4a.40.2', // Main profile
+                'video/mp4;codecs=avc1.42E01E,mp4a.40.2', // Baseline profile
+                'video/mp4'
+            ];
+            mime = mp4Candidates.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || null;
+            if (mime) { ext = 'mp4'; }
+        }
+        if (!mime) {
+            mime = (MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm');
+            ext = 'webm';
+        }
+
+        // ─── CAPTURA DE VIDEO (modo manual si el navegador lo soporta) ───
+        // captureStream(0) + requestFrame(): cada frame dibujado se envía exactamente
+        // una vez (sin muestreo del navegador que duplica/pierde frames bajo carga).
+        let stream = exportCanvas.captureStream(0);
+        exportStreamEl = stream;
+        exportVideoTrack = stream.getVideoTracks()[0] || null;
+        const canManual = (exportVideoTrack && typeof exportVideoTrack.requestFrame === 'function')
+            || (stream && typeof stream.requestFrame === 'function');
+        if (!canManual) {
+            // Fallback: muestreo automático a FPS (comportamiento anterior)
+            stream = exportCanvas.captureStream(FPS);
+            exportStreamEl = stream;
+            exportVideoTrack = null;
+        }
+        if (exportAudioDest) {
+            exportAudioDest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+        }
+        exportRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: videoBps, audioBitsPerSecond: 192000 });
+        exportRecorder.ondataavailable = e => { if (e.data.size) exportChunks.push(e.data); };
+        exportRecorder.onstop = () => {
+            const blob = new Blob(exportChunks, { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'ranking_video.' + ext;
+            a.click(); URL.revokeObjectURL(url);
+            validateExportedFile(blob, getTotalDuration());
+            finishExport();
+        };
+    }
 
     document.getElementById('exportOverlay').classList.remove('hidden');
     currentClipIndex = 0; isPlaying = true;
@@ -2612,32 +4275,78 @@ async function startExport() {
         });
     }
 
-    exportRecorder.start(100);
-
+    // Preparar el primer clip antes de empezar a grabar (evita segundos negros al inicio)
+    isPreparingClip = true;
     if (state.intro.enabled) {
         startIntro();
+        isPreparingClip = false;
     } else {
         await playCurrentClip();
+        isPreparingClip = false;
     }
+
+    // Esperar un frame extra para que el video tenga un frame listo
+    await new Promise(r => requestAnimationFrame(r));
+
+    // Esperar a que el primer clip esté AVANZANDO de verdad: play() puede resolver
+    // antes de que el decoder entregue el primer frame → si no, los primeros
+    // frames del export salen congelados en el frame inicial del clip.
+    if (!state.intro.enabled) {
+        const fc = state.clips[0];
+        if (fc && fc.videoEl && !fc.videoEl.paused) {
+            const waitStart = performance.now();
+            while (fc.videoEl.currentTime <= (fc.trimStart || 0) && performance.now() - waitStart < 400) {
+                await new Promise(r => requestAnimationFrame(r));
+            }
+        }
+    }
+
+    // Arrancar la grabación según la ruta activa
+    if (wcExport) {
+        startWebCodecsRecording();
+    } else {
+        exportLastDraw = -1e9;
+        exportRecorder.start(100);
+    }
+    // Keep-alive: mantiene el track de video vivo si la pestaña se oculta (rAF se pausa).
+    // El intervalo coincide con la cadencia de frames para no perder beats.
+    exportKeepAlive = setInterval(() => {
+        if (isExporting && document.hidden) tickExportFrame();
+    }, Math.floor(1000 / FPS));
+}
+
+// ¿La grabación ya está en marcha? (no confundir con la preparación inicial)
+function exportRecordingActive() {
+    return wcExport ? wcExport.recording : !!exportRecorder;
 }
 
 function updateExportProgress() {
+    // Música y voces se mantienen en sync TAMBIÉN durante la preparación del
+    // siguiente clip (si no, cada transición las deja atrás → desincronización).
+    // En la preparación inicial aún no graba: no adelantar el audio.
+    const elapsedNow = getElapsedTime();
     const tot = getTotalDuration();
-    const pct = tot > 0 ? Math.min(100, (getElapsedTime() / tot) * 100) : 0;
+    const pct = tot > 0 ? Math.min(100, (elapsedNow / tot) * 100) : 0;
     document.getElementById('exportProgress').style.width = pct + '%';
     document.getElementById('exportProgressText').textContent = Math.round(pct) + '%';
+    if (exportRecordingActive()) {
+        syncExportAudioTracks(elapsedNow);
+        syncVoiceovers(elapsedNow);
+    }
 
-    // Sync audio tracks during export
-    syncExportAudioTracks(getElapsedTime());
+    if (isPreparingClip) return;   // no avanzar la máquina de estados durante la preparación
 
     // Handle intro phase
     if (isInIntro) {
         const elapsed = getIntroElapsedTime();
         if (elapsed >= state.intro.duration) {
+            captureExportHold();   // retener el último frame del intro
             isInIntro = false;
+            stopIntroBgClip();
             if (introAudioEl) introAudioEl.pause();
             currentClipIndex = 0;
-            playCurrentClip();
+            isPreparingClip = true;
+            playCurrentClip().then(() => { isPreparingClip = false; });
         }
         return;
     }
@@ -2646,29 +4355,33 @@ function updateExportProgress() {
     if (isInOutro) {
         if (getOutroElapsedTime() >= state.outro.durationSec) {
             isPlaying = false;
-            exportRecorder?.stop();
+            stopExportRecording();
         }
         return;
     }
 
     const clip = state.clips[currentClipIndex];
-    if (!clip || !clip.videoEl) { isPlaying = false; exportRecorder?.stop(); return; }
+    if (!clip || !clip.videoEl) { isPlaying = false; stopExportRecording(); return; }
 
     // Style engine: freezes + SFX + voiceovers
     tickStyleEngine();
-    syncVoiceovers(getElapsedTime());
+    tickCensorEngine();
+    preloadNextClip();
 
     // Check if current clip has ended (ended covers rounding issues with trimEnd)
     if (clip.videoEl.ended || clip.videoEl.currentTime >= clip.trimEnd) {
+        captureExportHold();   // retener el último frame del clip antes de cambiar
         clip.videoEl.pause();
         currentClipIndex++;
         if (currentClipIndex < state.clips.length) {
-            playCurrentClip();
+            // Preparar el siguiente clip antes de seguir grabando (sin frames negros)
+            isPreparingClip = true;
+            playCurrentClip().then(() => { isPreparingClip = false; });
         } else if (getOutroOffset() > 0) {
             startOutroPhase();
         } else {
             isPlaying = false;
-            exportRecorder?.stop();
+            stopExportRecording();
         }
     }
 }
@@ -2697,9 +4410,21 @@ function syncExportAudioTracks(elapsed) {
         }
     });
 }
-function cancelExport() { exportRecorder?.stop(); finishExport(); }
+function cancelExport() {
+    if (wcExport) { wcExport.cancelled = true; stopExportRecording(); }
+    else { exportRecorder?.stop(); finishExport(); }
+}
 function finishExport() {
-    isExporting = false; isPlaying = false; exportRecorder = null; exportCtx = null;
+    isExporting = false; isPlaying = false; isPreparingClip = false; exportRecorder = null; exportCtx = null;
+    if (exportKeepAlive) { clearInterval(exportKeepAlive); exportKeepAlive = null; }
+    exportVideoTrack = null; exportStreamEl = null; exportLastDraw = -1e9;
+    if (wcExport) {
+        // Cerrar encoders y tap PCM de la ruta WebCodecs
+        try { if (wcExport.venc.state !== 'closed') wcExport.venc.close(); } catch(e) {}
+        try { if (wcExport.aenc && wcExport.aenc.state !== 'closed') wcExport.aenc.close(); } catch(e) {}
+        try { wcExport.tap.port.onmessage = null; wcExport.tap.disconnect(); } catch(e) {}
+        wcExport = null;
+    }
     isInIntro = false;
     stopOutroPhase();
     // Detach audio routing and mute elements again (preview stays silent as before)
@@ -2711,6 +4436,8 @@ function finishExport() {
         if (c.vo && c.vo.audioEl) c.vo.audioEl.muted = true;
     });
     Object.values(sfxEls).forEach(el => { if (el) { try { el._audioSourceNode?.disconnect(); } catch(e) {} el.muted = true; } });
+    if (bleepEl) { try { bleepEl._audioSourceNode?.disconnect(); } catch(e) {} bleepEl.muted = true; }
+    stopBleep();
     if (outroVoiceEl) { try { outroVoiceEl._audioSourceNode?.disconnect(); } catch(e) {} outroVoiceEl.muted = true; }
     if (introAudioEl) { try { introAudioEl._audioSourceNode?.disconnect(); } catch(e) {} introAudioEl.muted = true; }
     state.audioTracks.forEach(t => {
@@ -2719,6 +4446,68 @@ function finishExport() {
     });
     document.getElementById('exportOverlay').classList.add('hidden');
     stopPlayback();
+}
+
+// ─── Diálogos Importar / Exportar (barra superior derecha) ───
+// Actualiza el hint del diálogo de exportación según formato y soporte
+function updateExportFormatHint() {
+    const sel = document.getElementById('exportFormat');
+    const hint = document.getElementById('exportFormatHint');
+    if (!sel || !hint) return;
+    const wc = webCodecsSupported();
+    if (!wc) {
+        hint.textContent = 'Este navegador no soporta WebCodecs: se usará el codificador integrado (MediaRecorder), que puede descartar fotogramas bajo carga.';
+        return;
+    }
+    if (sel.value === 'webm') {
+        hint.textContent = '⚠️ WebM usa el codificador integrado (MediaRecorder): puede descartar fotogramas y sentirse menos fluido. Para máxima fluidez elige MP4.';
+    } else {
+        hint.textContent = '✨ MP4 con WebCodecs: codificación H.264 por hardware, 60 fps constantes y máxima calidad. Recomendado.';
+    }
+}
+function openExportDialog() {
+    const sel = document.getElementById('exportFormat');
+    // WebCodecs disponible: preseleccionar MP4 para la ruta de máxima calidad/fluidez
+    if (sel && webCodecsSupported()) sel.value = 'mp4';
+    if (sel) sel.onchange = updateExportFormatHint;
+    updateExportFormatHint();
+    document.getElementById('exportDialog').classList.remove('hidden');
+}
+function closeExportDialog() { document.getElementById('exportDialog').classList.add('hidden'); }
+function openImportDialog() {
+    document.getElementById('importDialog').classList.remove('hidden');
+    const s = document.getElementById('importDialogStatus'); if (s) s.textContent = '';
+}
+function closeImportDialog() { document.getElementById('importDialog').classList.add('hidden'); }
+
+async function importFromDialog() {
+    const urlInput = document.getElementById('importUrlInput');
+    const status = document.getElementById('importDialogStatus');
+    const url = (urlInput.value || '').trim();
+    if (!url) { status.style.color = '#ff8888'; status.textContent = 'Pega una URL primero.'; return; }
+    if (window.location.protocol === 'file:' || window.location.port !== '3000') {
+        status.style.color = '#ff8888';
+        status.textContent = 'Abre el editor desde http://localhost:3000 (npm start).';
+        return;
+    }
+    status.style.color = ''; status.textContent = '⏳ Descargando video...';
+    try {
+        const res = await fetch('/api/import?url=' + encodeURIComponent(url));
+        if (!res.ok) throw new Error('Error del servidor (HTTP ' + res.status + ')');
+        const blob = await res.blob();
+        if (!blob.type.startsWith('video/') || blob.size === 0) throw new Error('La respuesta no es un video válido.');
+        const file = new File([blob], 'video_import_' + Date.now() + '.mp4', { type: blob.type });
+        // Crear el clip SOLO cuando el video ya se descargó y validó,
+        // para no dejar clips vacíos (bloque de 4px) si falla la importación.
+        const clipId = addClip();
+        handleFileUpload(clipId, file);
+        urlInput.value = '';
+        status.style.color = '#7cfc90'; status.textContent = '✅ Video importado correctamente.';
+        setTimeout(closeImportDialog, 900);
+    } catch (err) {
+        status.style.color = '#ff8888';
+        status.textContent = (err instanceof TypeError) ? 'No se pudo conectar. Ejecuta npm start.' : ('❌ ' + err.message);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2745,10 +4534,13 @@ function addClip() {
         trimStart: 0, trimEnd: 0, duration: 0, percentage: '',
         captions: [], captionsEnabled: true,
         numberText: '', numberColor: '', rankingPosition: '',
+        numberVisible: true,
             numberPos: getTemplateNumberPos(state.clips.length), // posición óptima desde plantilla
             timelineStart: state.clips.reduce((max, c) => Math.max(max, (c.timelineStart || 0) + getClipTrimDuration(c)), 0),
             panX: 0, panY: 0,
             volume: 1.0,
+            fpsReport: null,
+            fpsNormalized: false,
             blurBars: []
     };
     state.clips.push(clip);
@@ -2770,14 +4562,40 @@ function handleFileUpload(clipId, file) {
 
     clip.file = file; clip.url = URL.createObjectURL(file);
     clip.audioSourceNode = null; // new element: audio node must be re-created at next export
+    // Nuevo archivo → invalidar cualquier informe de FPS anterior
+    clip.fpsReport = null;
+    clip.fpsNormalized = false;
+    // Invalidar miniaturas del video anterior para que se regeneren con el nuevo
+    clip.thumbs = null;
+    clip._thumbsLoading = false;
+    // Las marcas de censura son tiempos de ESTE archivo: al cambiar el video dejan de valer
+    clip.censorMarks = [];
+    deleteItem(STORE_VIDEOS, 'thumbs_' + clipId).catch(() => {});
+
     const video = document.createElement('video');
     video.preload = 'auto'; video.muted = true; video.playsInline = true; video.src = clip.url;
     videoContainer.appendChild(video);
     clip.videoEl = video;
 
     video.addEventListener('loadedmetadata', () => {
-        clip.duration = video.duration;
-        clip.trimEnd = Math.min(Math.round(video.duration * 100) / 100, video.duration);
+        clip.duration = isFinite(video.duration) ? video.duration : 0;
+        clip.trimEnd = clip.duration > 0 ? Math.min(Math.round(clip.duration * 100) / 100, clip.duration) : 0;
+        repackTimelineClips();
+        renderClipsList();
+        ensureClipThumbs(clip);
+        scheduleAutoSave();
+    });
+
+    // Video que el navegador no puede decodificar (p. ej. H.265 de TikTok):
+    // sin esto el clip quedaba con duration 0 → bloque de 4px tapado por el siguiente.
+    video.addEventListener('error', () => {
+        if (!clip.file) return;
+        alert('El video "' + (clip.file.name || '') + '" no se puede reproducir en este navegador (códec no compatible, p. ej. H.265). Se quitó del clip; importa otro formato o archivo.');
+        if (clip.url && clip.url.startsWith('blob:')) URL.revokeObjectURL(clip.url);
+        clip.file = null; clip.url = ''; clip.videoEl = null;
+        clip.duration = 0; clip.trimStart = 0; clip.trimEnd = 0;
+        clip.censorMarks = [];
+        video.remove();
         repackTimelineClips();
         renderClipsList();
         scheduleAutoSave();
@@ -2845,6 +4663,164 @@ async function importUrlToClip(clipId) {
     }
 }
 
+// ═══════════════════════════════════════════════════════════
+//  ANÁLISIS Y NORMALIZACIÓN DE FPS (el proyecto exporta a 60 CFR)
+//  · /api/analyze   → FPS reales por PTS, VFR y duplicados (ffprobe)
+//  · /api/normalize → aterrizar CFR + minterpolate a 60 (ffmpeg)
+//  · /api/validate  → veredicto del render final tras exportar
+// ═══════════════════════════════════════════════════════════
+
+function fpsApiAvailable() {
+    return window.location.protocol !== 'file:' && window.location.port === '3000';
+}
+
+function summarizeFpsReport(r, normalized) {
+    if (!r) return '';
+    if (normalized || (r.action === 'clean60'))
+        return '✅ ' + (r.realFps || 60) + ' fps CFR ' + (normalized ? '(normalizado)' : 'limpio');
+    const bits = [];
+    if (r.realFps) bits.push(r.realFps + ' fps reales');
+    if (r.isVfr || r.ptsIssues) bits.push('VFR/timestamps irregulares');
+    if (r.dupRatio > 0.05) bits.push(Math.round(r.dupRatio * 100) + '% duplicados');
+    return '⚠️ ' + (bits.length ? bits.join(' · ') : 'revision necesaria') + ' → normalizar';
+}
+
+function setFpsStatus(clipId, text, isErr) {
+    const el = document.getElementById('fpsStatus_' + clipId);
+    if (el) { el.textContent = text; el.style.color = isErr ? '#ff8888' : ''; }
+}
+
+async function analyzeClipFps(clipId, silent) {
+    const clip = state.clips.find(c => c.id === clipId);
+    if (!clip || !clip.file) { if (!silent) alert('Este clip no tiene video.'); return null; }
+    if (!fpsApiAvailable()) { if (!silent) alert('Abre el editor desde http://localhost:3000 (npm start).'); return null; }
+    setFpsStatus(clipId, '⏳ Analizando con ffprobe...');
+    try {
+        const res = await fetch('/api/analyze', { method: 'POST', body: clip.file });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || 'HTTP ' + res.status);
+        }
+        clip.fpsReport = await res.json();
+        clip.fpsNormalized = false;
+        setFpsStatus(clipId, summarizeFpsReport(clip.fpsReport, false));
+        scheduleAutoSave();
+        return clip.fpsReport;
+    } catch (e) {
+        setFpsStatus(clipId, '❌ ' + e.message, true);
+        return null;
+    }
+}
+
+// Sustituye el archivo del clip por la versión normalizada (60 CFR) conservando
+// trims, censuras y demás metadatos (la duración/timing no cambia).
+function applyNormalizedVideo(clip, blob, report) {
+    const baseName = (clip.file && clip.file.name ? clip.file.name : 'clip').replace(/\.[^.]*$/, '');
+    const newFile = new File([blob], baseName + '_60fps.mp4', { type: 'video/mp4' });
+    if (clip.url && clip.url.startsWith('blob:')) URL.revokeObjectURL(clip.url);
+    if (clip.videoEl) clip.videoEl.remove();
+    clip.file = newFile; clip.url = URL.createObjectURL(newFile);
+    clip.audioSourceNode = null;
+    clip.thumbs = null; clip._thumbsLoading = false;
+    const video = document.createElement('video');
+    video.preload = 'auto'; video.muted = true; video.playsInline = true; video.src = clip.url;
+    videoContainer.appendChild(video);
+    clip.videoEl = video;
+    video.addEventListener('loadedmetadata', () => {
+        clip.duration = isFinite(video.duration) ? video.duration : clip.duration;
+        clip.trimEnd = Math.min(clip.trimEnd || clip.duration, clip.duration);
+        repackTimelineClips();
+        renderClipsList();
+        ensureClipThumbs(clip);
+        scheduleAutoSave();
+    });
+    clip.fpsNormalized = true;
+    if (report && report.after) clip.fpsReport = report.after;
+}
+
+async function normalizeClipFps(clipId) {
+    const clip = state.clips.find(c => c.id === clipId);
+    if (!clip || !clip.file) { alert('Este clip no tiene video.'); return; }
+    if (!fpsApiAvailable()) { alert('Abre el editor desde http://localhost:3000 (npm start).'); return; }
+    if (!clip.fpsReport) await analyzeClipFps(clipId, true);
+    if (clip.fpsReport && clip.fpsReport.action === 'clean60') {
+        setFpsStatus(clipId, '✅ Ya es 60 CFR: no se reprocesa.');
+        return;
+    }
+    setFpsStatus(clipId, '⏳ Normalizando a 60 CFR (interpolación)... puede tardar.');
+    try {
+        const base = clip.fpsReport && clip.fpsReport.realFps ? clip.fpsReport.realFps : '';
+        const res = await fetch('/api/normalize?base=' + base, { method: 'POST', body: clip.file });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || 'HTTP ' + res.status);
+        }
+        const blob = await res.blob();
+        let report = null;
+        const hdr = res.headers.get('X-Report');
+        if (hdr) { try { report = JSON.parse(decodeURIComponent(hdr)); } catch (e) { /* cabecera opcional */ } }
+        applyNormalizedVideo(clip, blob, report);
+        setFpsStatus(clipId, '✅ Normalizado a 60 CFR' + (report && report.after && report.after.realFps ? ' (' + report.after.realFps + ' fps, cadencia uniforme)' : ''));
+        scheduleAutoSave();
+    } catch (e) {
+        setFpsStatus(clipId, '❌ ' + e.message, true);
+    }
+}
+
+async function analyzeAllClips() {
+    if (!state.clips.length) return alert('No hay clips.');
+    for (const c of state.clips) { if (c.file) await analyzeClipFps(c.id, true); }
+    renderClipsList();
+}
+
+async function normalizeAllClips() {
+    const targets = state.clips.filter(c => c.file && !(c.fpsReport && c.fpsReport.action === 'clean60' && c.fpsNormalized));
+    if (!targets.length) return alert('No hay clips pendientes de normalizar.');
+    for (const c of targets) await normalizeClipFps(c.id);
+    renderClipsList();
+}
+
+// Advertencia suave al exportar con clips sin normalizar
+function checkFpsBeforeExport() {
+    const pending = state.clips.filter(c =>
+        c.file && c.fpsReport && c.fpsReport.action !== 'clean60' && !c.fpsNormalized
+    );
+    if (!pending.length) return true;
+    return confirm(
+        pending.length + ' clip(s) no están a 60 FPS constantes (según el análisis).\n' +
+        'El export seguirá siendo 60 FPS CFR, pero su movimiento puede ir con tirones (frames duplicados irregulares).\n\n' +
+        'Pulsa "📈 Normalizar a 60 FPS" en la pestaña Media para interpolarlos.\n\n' +
+        '¿Exportar de todos modos?'
+    );
+}
+
+// Validación automática del archivo final (POST /api/validate)
+async function validateExportedFile(blob, expectedSeconds) {
+    if (!fpsApiAvailable() || !blob || !blob.size) return;
+    try {
+        const q = expectedSeconds ? '?expected=' + expectedSeconds.toFixed(3) : '';
+        const res = await fetch('/api/validate' + q, { method: 'POST', body: blob });
+        if (!res.ok) { console.warn('Validación del render: HTTP ' + res.status); return; }
+        showValidationReport(await res.json());
+    } catch (e) { console.warn('Validación del render:', e); }
+}
+
+function showValidationReport(report) {
+    const old = document.getElementById('fpsValidationPanel');
+    if (old) old.remove();
+    const checks = report.checks || [];
+    const div = document.createElement('div');
+    div.id = 'fpsValidationPanel';
+    div.className = 'fps-validation-panel';
+    div.innerHTML =
+        '<div class="fvp-header"><b>' + (report.pass ? '✅ Render validado: 60 FPS CFR' : '⚠️ Validación del render') + '</b>' +
+        '<button class="fvp-close" title="Cerrar" onclick="this.closest(\'.fps-validation-panel\').remove()">✕</button></div>' +
+        '<ul>' + checks.map(c =>
+            '<li>' + (c.pass ? '✅' : '❌') + ' <b>' + c.name + '</b>' + (c.detail ? ' — ' + c.detail : '') + '</li>'
+        ).join('') + '</ul>';
+    document.body.appendChild(div);
+}
+
 function updateClipField(id, field, value) {
     const clip = state.clips.find(c => c.id === id);
     if(!clip) return;
@@ -2869,6 +4845,7 @@ function removeClip(id) {
     if(c.url) URL.revokeObjectURL(c.url);
     if(c.videoEl) c.videoEl.remove();
     if(c.vo && c.vo.audioEl) { c.vo.audioEl.pause(); c.vo.audioEl.remove(); }
+    if(tlSelection && tlSelection.type === 'clip' && tlSelection.id === id) tlSelection = null;
     state.clips.splice(idx, 1);
     if(currentClipIndex >= state.clips.length) currentClipIndex = Math.max(0, state.clips.length-1);
     repackTimelineClips();
@@ -2910,8 +4887,11 @@ function updateCap(id, idx, field, val) {
 
 function selectClip(idx) {
     if(isPlaying) return; currentClipIndex = idx;
-    const c = state.clips[idx]; if(c && c.videoEl && c.videoEl.readyState>=2) c.videoEl.currentTime = c.trimStart;
+    const c = state.clips[idx];
+    if(c) tlSelection = { type: 'clip', id: c.id };
+    if(c && c.videoEl && c.videoEl.readyState>=2) c.videoEl.currentTime = c.trimStart;
     renderTimelineClips();
+    renderAudioTracks();
     updateTimeDisplay();
     renderBlurBarsList();
 }
@@ -2971,6 +4951,17 @@ function renderClipsList() {
             '</div>' +
             '<p class="hint" style="margin:6px 0 2px"><b>Estilo de las captions:</b></p>' +
             '<div class="form-row">' +
+                '<label>Copiar de</label>' +
+                '<select id="vocpsrc_' + clip.id + '" style="flex:1;min-width:0" onclick="event.stopPropagation()">' +
+                    state.clips.map(function(sc, si) {
+                        const hasVo = sc.vo && sc.vo.enabled !== false;
+                        const lbl = '#' + (si + 1) + (sc.numberText ? ' ' + sc.numberText : (sc.rankingPosition ? ' #' + sc.rankingPosition : ''));
+                        return '<option value="' + sc.id + '"' + (sc.id === clip.id ? ' selected' : '') + '>' + (hasVo ? '' : '(sin vo) ') + escapeHtml(lbl) + '</option>';
+                    }).join('') +
+                '</select>' +
+                '<button class="btn btn-sm" title="Copia el estilo del clip elegido (fuente, tamaño, color, fondo, outline, palabras, posición) y lo aplica a TODOS los clips" onclick="event.stopPropagation();copyClipCaptionStyleToVo(\'' + clip.id + '\')">⧉ A todos</button>' +
+            '</div>' +
+            '<div class="form-row">' +
                 '<label>Palabras</label>' +
                 '<select onchange="updateVoField(\'' + clip.id + '\',\'capWords\',this.value)" onclick="event.stopPropagation()">' +
                     [1, 2, 3, 4, 5, 6].map(n => '<option value="' + n + '"' + ((vo.capWords ?? 3) === n ? ' selected' : '') + '>' + n + ' a la vez</option>').join('') +
@@ -2978,7 +4969,7 @@ function renderClipsList() {
             '</div>' +
             '<div class="form-row">' +
                 '<label>Fuente</label>' +
-                '<select onchange="updateVoField(\'' + clip.id + '\',\'capFont\',this.value)" onclick="event.stopPropagation()">' +
+                '<select class="vo-cap-font" data-capfont="' + (vo.capFont || '') + '" onchange="updateVoField(\'' + clip.id + '\',\'capFont\',this.value)" onclick="event.stopPropagation()">' +
                     ["'Segoe UI', sans-serif", "Arial, sans-serif", "Verdana, sans-serif", "Impact, sans-serif", "'Comic Sans MS', cursive", "Georgia, serif"].map(f => '<option value="' + f + '"' + ((vo.capFont || "'Segoe UI', sans-serif") === f ? ' selected' : '') + '>' + f.split(',')[0].replace(/'/g, '') + '</option>').join('') +
                 '</select>' +
             '</div>' +
@@ -3009,6 +5000,43 @@ function renderClipsList() {
             '<p class="hint" style="margin:2px 0 0">Arrastra la caption en el canvas para posicionarla.</p>' +
         '</div>';
 
+        // ── Censura de malas palabras: detección IA + marcas por fuente ──
+        const censorSrcs = [];
+        if (clip.file || (clip.censorMarks && clip.censorMarks.length)) {
+            censorSrcs.push({ src: 'video', label: 'Video', marks: clip.censorMarks || [], canDetect: !!clip.file });
+        }
+        if (clip.vo) {
+            censorSrcs.push({ src: 'vo', label: 'Voz en off', marks: clip.vo.censorMarks || [], canDetect: !!clip.vo._file });
+        }
+        let censorHtml = '';
+        if (censorSrcs.length) {
+            let censorInner = '';
+            censorSrcs.forEach(cs => {
+                let markRows = '';
+                cs.marks.forEach(m => {
+                    markRows += '<div class="caption-row">' +
+                        '<span style="flex:1;font-size:11px;color:' + (m.excluded ? '#6a6a8a' : '#ff9a6a') + '">' +
+                            escapeHtml(m.word) + ' · ' + m.from.toFixed(1) + 's–' + m.to.toFixed(1) + 's' + (m.excluded ? ' (excluida)' : '') +
+                        '</span>' +
+                        '<button class="btn btn-sm" style="' + (m.excluded ? '' : 'background:#402030;') + '" onclick="event.stopPropagation();toggleCensorMark(\'' + clip.id + '\',\'' + cs.src + '\',\'' + m.id + '\')" title="' + (m.excluded ? 'Volver a censurar esta palabra' : 'Omitir la censura de esta palabra (falso positivo)') + '">' + (m.excluded ? 'Censurar' : 'Excluir') + '</button>' +
+                        '<button class="caption-del" onclick="event.stopPropagation();removeCensorMark(\'' + clip.id + '\',\'' + cs.src + '\',\'' + m.id + '\')">✕</button>' +
+                    '</div>';
+                });
+                censorInner += '<div class="captions-header" style="margin-top:4px">' +
+                        '<span style="font-size:11px;font-weight:600;color:#ff9a6a;text-transform:uppercase">🤬 ' + cs.label + ' (' + cs.marks.length + ')</span>' +
+                        (cs.canDetect ? '<button class="btn btn-sm" onclick="event.stopPropagation();detectCensor(\'' + clip.id + '\',\'' + cs.src + '\')" title="Detectar malas palabras en inglés con IA local (tarda un poco)">🪄 Detectar</button>' : '') +
+                    '</div>' +
+                    markRows +
+                    '<div class="caption-row">' +
+                        '<input type="number" id="cmFrom_' + cs.src + '_' + clip.id + '" step="0.1" placeholder="0.0" style="width:52px" title="Segundo inicial (tiempo del archivo)" onclick="event.stopPropagation()">' +
+                        '<span style="font-size:10px;color:#6a6a8a">a</span>' +
+                        '<input type="number" id="cmTo_' + cs.src + '_' + clip.id + '" step="0.1" placeholder="0.5" style="width:52px" title="Segundo final (tiempo del archivo)" onclick="event.stopPropagation()">' +
+                        '<button class="btn btn-sm" onclick="event.stopPropagation();addCensorMarkManual(\'' + clip.id + '\',\'' + cs.src + '\')" title="Añadir marca de censura manual">+ Manual</button>' +
+                    '</div>';
+            });
+            censorHtml = '<div class="captions-section" style="margin-top:6px">' + censorInner + '</div>';
+        }
+
         html += '<div class="clip-card" style="' + borderStyle + '" onclick="selectClip(' + idx + ')">' +
             '<div class="clip-card-header">' +
                 '<span class="clip-filename" data-duration-clip="' + clip.id + '" style="font-weight:bold; font-size:12px">Clip ' + (idx+1) + ' - ' + fileName + ' ' + durT + '</span>' +
@@ -3028,6 +5056,11 @@ function renderClipsList() {
                     '<button class="btn btn-sm" id="urlBtn_' + clip.id + '" onclick="event.stopPropagation();importUrlToClip(\'' + clip.id + '\')">📥 URL</button>' +
                 '</div>' +
                 '<p class="hint clip-url-status" id="urlStatus_' + clip.id + '"></p>' +
+                '<div class="clip-fps-row" onclick="event.stopPropagation()">' +
+                    '<button class="btn btn-sm fps-btn" title="Analizar FPS reales, VFR y duplicados (ffprobe)" onclick="analyzeClipFps(\'' + clip.id + '\')">🔬</button>' +
+                    '<button class="btn btn-sm fps-btn" title="Normalizar a 60 FPS con interpolación de movimiento" onclick="normalizeClipFps(\'' + clip.id + '\')">📈</button>' +
+                    '<span class="fps-status" id="fpsStatus_' + clip.id + '">' + summarizeFpsReport(clip.fpsReport, clip.fpsNormalized) + '</span>' +
+                '</div>' +
                 '<div class="clip-trim-row">' +
                     '<label>Trim</label>' +
                     '<input type="number" value="' + clip.trimStart + '" step="0.1" title="Inicio" onchange="updateClipField(\'' + clip.id + '\',\'trimStart\',this.value)" onclick="event.stopPropagation()"> a ' +
@@ -3040,11 +5073,19 @@ function renderClipsList() {
                 '</div>' +
                 '<div class="form-row">' +
                     '<label>Ranking</label>' +
+                    '<label style="display:flex;align-items:center;gap:4px;cursor:pointer" onclick="event.stopPropagation()" title="Mostrar u ocultar el número de este clip">' +
+                        '<input type="checkbox" ' + (clip.numberVisible !== false ? 'checked' : '') + ' onchange="updateClipField(\'' + clip.id + '\',\'numberVisible\',this.checked)">#' +
+                    '</label>' +
                     '<input type="number" value="' + clip.rankingPosition + '" placeholder="' + (idx+1) + '" style="width:45px;flex:none" title="Número del ranking (vacío = automático)" oninput="updateClipField(\'' + clip.id + '\',\'rankingPosition\',this.value)" onclick="event.stopPropagation()">' +
                     '<input type="text" value="' + clip.numberText + '" placeholder="Texto (ej: never again)" style="flex:1" oninput="updateClipField(\'' + clip.id + '\',\'numberText\',this.value)" onclick="event.stopPropagation()">' +
-                    '<input type="color" value="' + (clip.numberColor || state.numbers.color || '#FFD700') + '" oninput="updateClipField(\'' + clip.id + '\',\'numberColor\',this.value)" onclick="event.stopPropagation()">' +
                     '<span style="flex:1"></span>' +
                     '<input type="text" value="' + clip.percentage + '" placeholder="ej: 99" style="width:50px;flex:none" title="Porcentaje" oninput="updateClipField(\'' + clip.id + '\',\'percentage\',this.value)" onclick="event.stopPropagation()"> %' +
+                '</div>' +
+                '<div class="form-row">' +
+                    '<label>Color Nº</label>' +
+                    '<input type="color" value="' + (clip.numberColor || state.numbers.color || '#FFD700') + '" title="Color del número de ESTE clip (anula el global)" oninput="updateClipField(\'' + clip.id + '\',\'numberColor\',this.value)" onclick="event.stopPropagation()">' +
+                    '<button class="btn btn-sm" type="button" title="Volver al color global" onclick="event.stopPropagation();updateClipField(\'' + clip.id + '\',\'numberColor\',\'\');renderClipsList();">↺ Global</button>' +
+                    '<span style="flex:1"></span>' +
                 '</div>' +
                 '<div class="captions-section">' +
                     '<div class="captions-header">' +
@@ -3059,10 +5100,13 @@ function renderClipsList() {
                     captionsHtml +
                     voHtml +
                 '</div>' +
+                censorHtml +
             '</div>' +
         '</div>';
     });
     clipsList.innerHTML = html;
+    clipsList.querySelectorAll('.vo-cap-font').forEach(sel => appendExtraFonts(sel, sel.dataset.capfont || null));
+    refreshIntroBgClipSelect();
     renderTimelineClips();
     renderAudioTracks();
     refreshOutroBgClipSelect();
@@ -3074,8 +5118,9 @@ function escapeHtml(t) { const d=document.createElement('div'); d.textContent=t;
 // ═══════════════════════════════════════════════════════════
 let aiWorker = null;
 let aiWorkerReady = false;
-let aiTargetMode = null;   // 'intro' | 'clip' | 'vo' | 'outro'
+let aiTargetMode = null;   // 'intro' | 'clip' | 'vo' | 'outro' | 'censor'
 let aiTargetClipId = null;
+let aiTargetSub = null;    // detección de censura: 'video' | 'vo'
 
 async function extractAudio(file) {
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
@@ -3101,6 +5146,14 @@ function startAITranscription(mode, clipId) {
     } else if (mode === 'vo') {
         const c = state.clips.find(x => x.id === clipId);
         if (!c || !c.vo || !c.vo._file) return alert('Importa el audio de la voz en off de este clip primero.');
+    } else if (mode === 'censor') {
+        const c = state.clips.find(x => x.id === clipId);
+        if (!c) return;
+        if (aiTargetSub === 'vo') {
+            if (!c.vo || !c.vo._file) return alert('Importa el audio de la voz en off de este clip primero.');
+        } else if (!c.file) {
+            return alert('Debes subir un archivo de video primero.');
+        }
     } else {
         const c = state.clips.find(x => x.id === clipId);
         if (!c || !c.file) return alert('Debes subir un archivo de video primero.');
@@ -3169,7 +5222,9 @@ function getAIFileForMode() {
     if (aiTargetMode === 'outro') return state.outro._voiceFile;
     const clip = state.clips.find(c => c.id === aiTargetClipId);
     if (!clip) return null;
-    return aiTargetMode === 'vo' ? (clip.vo && clip.vo._file) : clip.file;
+    if (aiTargetMode === 'vo') return (clip.vo && clip.vo._file) || null;
+    if (aiTargetMode === 'censor') return aiTargetSub === 'vo' ? (clip.vo && clip.vo._file) || null : clip.file;
+    return clip.file;
 }
 
 async function runAITranscription() {
@@ -3186,8 +5241,10 @@ async function runAITranscription() {
         document.getElementById('aiProgress').style.width = '50%';
         // Simulate progress bar while waiting
         let p = 50; const iv = setInterval(()=>{ p+=2; if(p<95) document.getElementById('aiProgress').style.width=p+'%'; else clearInterval(iv); }, 1000);
-        const wordLevel = (aiTargetMode === 'intro' || aiTargetMode === 'vo');
-        const lang = aiTargetMode === 'outro'
+        const wordLevel = (aiTargetMode === 'intro' || aiTargetMode === 'vo' || aiTargetMode === 'censor');
+        // La censura busca malas palabras en INGLÉS siempre (lista editable en la sección 🤬)
+        const lang = aiTargetMode === 'censor' ? 'english'
+            : aiTargetMode === 'outro'
             ? (state.outro.captionLanguage || 'spanish')
             : (state.intro.captionLanguage || 'english');
         aiWorker.postMessage({ type: 'transcribe', audio: float32Audio, wordLevel, language: lang });
@@ -3203,6 +5260,15 @@ function applyAICaptions(chunks) {
         from: Math.round(ch.timestamp[0]*10)/10,
         to: ch.timestamp[1] === null ? Math.round((ch.timestamp[0]+2)*10)/10 : Math.round(ch.timestamp[1]*10)/10
     });
+
+    if (aiTargetMode === 'censor') {
+        applyCensorDetection(chunks);
+        aiTargetMode = null;
+        aiTargetClipId = null;
+        aiTargetSub = null;
+        document.getElementById('aiOverlay').classList.add('hidden');
+        return;
+    }
 
     if (aiTargetMode === 'intro') {
         state.intro.captions = chunks.map(mapChunk);
@@ -3234,6 +5300,63 @@ function applyAICaptions(chunks) {
     document.getElementById('aiOverlay').classList.add('hidden');
 }
 
+// Detección de malas palabras: convierte los chunks palabra a palabra de Whisper
+// en marcas de censura [{id, word, from, to, excluded}] sobre el audio del clip.
+function applyCensorDetection(chunks) {
+    const clip = state.clips.find(c => c.id === aiTargetClipId);
+    if (!clip) return;
+    const wordSet = getCensorWordSet();
+    const srcLabel = aiTargetSub === 'vo' ? 'voz en off' : 'video';
+
+    const detected = [];
+    (chunks || []).forEach(ch => {
+        const w = normalizeCensorWord(ch && ch.text);
+        const ts = ch && ch.timestamp;
+        const from = ts ? ts[0] : null;
+        let to = ts ? ts[1] : null;
+        if (to === null || to === undefined) to = (Number.isFinite(from) ? from + 0.6 : null);
+        if (w && wordSet.has(w) && Number.isFinite(from) && Number.isFinite(to) && to > from) {
+            detected.push({
+                id: 'cm' + (++censorMarkSeq) + '_' + Date.now(),
+                word: w,
+                from: Math.round(from * 100) / 100,
+                to: Math.round(to * 100) / 100,
+                excluded: false
+            });
+        }
+    });
+
+    // Fusionar marcas solapadas o casi contiguas (frase censurable seguida)
+    const merged = [];
+    detected.sort((a, b) => a.from - b.from).forEach(m => {
+        const last = merged[merged.length - 1];
+        if (last && m.from - last.to < 0.08) {
+            last.to = Math.max(last.to, m.to);
+            last.word += ' ' + m.word;
+        } else {
+            merged.push(m);
+        }
+    });
+
+    // Conservar "excluded" de marcas equivalentes ya presentes (falsos positivos marcados antes)
+    const prev = aiTargetSub === 'vo' ? (clip.vo && clip.vo.censorMarks) : clip.censorMarks;
+    if (merged.length && prev && prev.length) {
+        merged.forEach(m => {
+            const match = prev.find(p => p.excluded && p.word === m.word && Math.abs(p.from - m.from) < 0.4);
+            if (match) m.excluded = true;
+        });
+    }
+
+    if (aiTargetSub === 'vo') ensureVo(clip).censorMarks = merged;
+    else clip.censorMarks = merged;
+
+    renderClipsList();
+    scheduleAutoSave();
+    alert(merged.length === 0
+        ? 'No se detectaron malas palabras en el audio del ' + srcLabel + '.'
+        : 'Se detectaron ' + merged.length + ' marca(s) de censura en el ' + srcLabel + '.\nRevisa la lista 🤬 del clip: puedes excluir falsos positivos o ajustar marcas manuales.');
+}
+
 // ═══════════════════════════════════════════════════════════
 // ████  OS DRAG & DROP & UI UPDATES  ████
 // ═══════════════════════════════════════════════════════════
@@ -3247,13 +5370,147 @@ document.body.addEventListener('drop', e => {
 
 function updateTitle() {
     state.title.font = document.getElementById('titleFont').value;
-    state.title.line1 = document.getElementById('titleLine1').value;
-    state.title.line2 = document.getElementById('titleLine2').value;
+    const lineInputs = document.querySelectorAll('#titleLinesContainer .title-line-input');
+    if (lineInputs.length > 0) {
+        state.title.lines = Array.from(lineInputs).map(inp => inp.value);
+    }
+    const fontSelects = document.querySelectorAll('#titleLinesContainer .title-line-font');
+    if (fontSelects.length > 0) {
+        state.title.lineFonts = Array.from(fontSelects).map(sel => sel.value || '');
+    }
+    const sizeRanges = document.querySelectorAll('#titleLinesContainer .title-line-size');
+    if (sizeRanges.length > 0) {
+        state.title.lineSizes = Array.from(sizeRanges).map(r => {
+            const v = parseInt(r.value);
+            return Number.isFinite(v) ? v : null;
+        });
+    }
+    ensureTitlePositions();
     state.title.textColor = document.getElementById('titleTextColor').value;
     state.title.fontSize = parseInt(document.getElementById('titleFontSize').value);
     document.getElementById('titleFontSizeVal').textContent = state.title.fontSize;
     scheduleAutoSave();
+    drawFrame();
 }
+
+const TITLE_FONT_OPTIONS = [
+    { v: "'Segoe UI', Arial, sans-serif", t: 'Segoe UI' },
+    { v: 'Arial, sans-serif', t: 'Arial' },
+    { v: 'Verdana, sans-serif', t: 'Verdana' },
+    { v: 'Impact, sans-serif', t: 'Impact' },
+    { v: "'Comic Sans MS', cursive", t: 'Comic Sans' },
+    { v: "'Courier New', monospace", t: 'Courier New' },
+    { v: 'Georgia, serif', t: 'Georgia' }
+].concat(EXTRA_FONTS_FLAT);
+
+function renderTitleLineInputs() {
+    const container = document.getElementById('titleLinesContainer');
+    container.innerHTML = '';
+    state.title.lines.forEach((line, i) => {
+        // Fila 1: texto de la línea + botón eliminar
+        const rowText = document.createElement('div');
+        rowText.className = 'form-row';
+        const label = document.createElement('label');
+        label.textContent = 'Línea ' + (i + 1);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = line;
+        input.className = 'title-line-input';
+        input.style.flex = '1';
+        input.style.minWidth = '0';
+        input.addEventListener('input', updateTitle);
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.textContent = '✕';
+        del.title = 'Eliminar línea';
+        del.style.marginLeft = '6px';
+        del.addEventListener('click', () => removeTitleLine(i));
+        rowText.appendChild(label);
+        rowText.appendChild(input);
+        rowText.appendChild(del);
+
+        // Fila 2: fuente + tamaño por línea
+        const rowStyle = document.createElement('div');
+        rowStyle.className = 'form-row';
+        const fontLabel = document.createElement('label');
+        fontLabel.textContent = 'Fuente';
+        const fontSel = document.createElement('select');
+        fontSel.className = 'title-line-font';
+        fontSel.title = 'Fuente de esta línea (vacío = global)';
+        fontSel.style.flex = '0 0 auto';
+        const optDef = document.createElement('option');
+        optDef.value = ''; optDef.textContent = 'Global';
+        fontSel.appendChild(optDef);
+        TITLE_FONT_OPTIONS.forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = o.v; opt.textContent = o.t;
+            fontSel.appendChild(opt);
+        });
+        fontSel.value = state.title.lineFonts[i] || '';
+        fontSel.addEventListener('change', updateTitle);
+
+        const sizeLabel = document.createElement('label');
+        sizeLabel.textContent = 'Tam.';
+        sizeLabel.style.textAlign = 'right';
+        const sizeRange = document.createElement('input');
+        sizeRange.type = 'range';
+        sizeRange.min = '24'; sizeRange.max = '160';
+        sizeRange.className = 'title-line-size';
+        sizeRange.style.flex = '1';
+        sizeRange.style.minWidth = '60px';
+        const curSize = (typeof state.title.lineSizes[i] === 'number' && state.title.lineSizes[i] > 0)
+            ? state.title.lineSizes[i] : state.title.fontSize;
+        sizeRange.value = String(curSize);
+        sizeRange.title = 'Tamaño de esta línea';
+        const sizeVal = document.createElement('span');
+        sizeVal.className = 'range-value';
+        sizeVal.textContent = curSize;
+        sizeVal.style.minWidth = '32px';
+        sizeVal.style.textAlign = 'right';
+        const syncVal = () => { sizeVal.textContent = sizeRange.value; };
+        sizeRange.addEventListener('input', syncVal);
+        sizeRange.addEventListener('input', updateTitle);
+
+        rowStyle.appendChild(fontLabel);
+        rowStyle.appendChild(fontSel);
+        rowStyle.appendChild(sizeLabel);
+        rowStyle.appendChild(sizeRange);
+        rowStyle.appendChild(sizeVal);
+
+        const wrap = document.createElement('div');
+        wrap.style.display = 'flex';
+        wrap.style.flexDirection = 'column';
+        wrap.style.gap = '4px';
+        wrap.style.marginBottom = '6px';
+        wrap.appendChild(rowText);
+        wrap.appendChild(rowStyle);
+        container.appendChild(wrap);
+    });
+}
+
+function addTitleLine() {
+    state.title.lines.push('');
+    if (!Array.isArray(state.title.lineFonts)) state.title.lineFonts = [];
+    if (!Array.isArray(state.title.lineSizes)) state.title.lineSizes = [];
+    state.title.lineFonts.push('');
+    state.title.lineSizes.push(null);
+    ensureTitlePositions();
+    renderTitleLineInputs();
+    scheduleAutoSave();
+    drawFrame();
+}
+
+function removeTitleLine(i) {
+    if (state.title.lines.length <= 1) return;
+    state.title.lines.splice(i, 1);
+    state.layout.titlePos.splice(i, 1);
+    if (Array.isArray(state.title.lineFonts)) state.title.lineFonts.splice(i, 1);
+    if (Array.isArray(state.title.lineSizes)) state.title.lineSizes.splice(i, 1);
+    renderTitleLineInputs();
+    scheduleAutoSave();
+    drawFrame();
+}
+
 function updateNumbers() {
     state.numbers.font = document.getElementById('numFont').value;
     state.numbers.fontSize = parseInt(document.getElementById('numFontSize').value);
@@ -3407,11 +5664,30 @@ function updateClipVolume(clipId, val) {
     scheduleAutoSave();
 }
 
+function updateShortsOverlay() {
+    if (!state.shortsOverlay) state.shortsOverlay = { enabled:false, opacity:0.5, visible:true };
+    state.shortsOverlay.enabled = document.getElementById('shortsOverlayEnabled').checked;
+    state.shortsOverlay.opacity = parseInt(document.getElementById('shortsOverlayOpacity').value) / 100;
+    document.getElementById('shortsOverlayOpacityVal').textContent = document.getElementById('shortsOverlayOpacity').value + '%';
+    scheduleAutoSave();
+    drawFrame();
+}
+
+function toggleShortsHide() {
+    if (!state.shortsOverlay) state.shortsOverlay = { enabled:false, opacity:0.5, visible:true };
+    state.shortsOverlay.visible = !state.shortsOverlay.visible;
+    const btn = document.getElementById('shortsOverlayHideBtn');
+    if (btn) btn.textContent = state.shortsOverlay.visible ? 'Ocultar' : 'Mostrar';
+    drawFrame();
+}
+
 function updateIntro() {
     state.intro.enabled = document.getElementById('introEnabled').checked;
     state.intro.duration = parseInt(document.getElementById('introDuration').value);
     state.intro.blurAmount = parseInt(document.getElementById('introBlur').value);
     state.intro.overlayOpacity = parseInt(document.getElementById('introOverlay').value) / 100;
+    state.intro.bgClipId = document.getElementById('introBgClip').value || null;
+    state.intro.bgMuted = document.getElementById('introBgMuted').checked;
     state.intro.captionsEnabled = document.getElementById('introCaptionsEnabled').checked;
     state.intro.captionBgEnabled = document.getElementById('introCapBg').checked;
     state.intro.captionFont = document.getElementById('introCapFont').value;
@@ -3428,8 +5704,20 @@ function updateIntro() {
     scheduleAutoSave();
 }
 
-function handleIntroAudio(file) {
-    if (!file) return;
+function refreshIntroBgClipSelect() {
+    const sel = document.getElementById('introBgClip');
+    if (!sel) return;
+    const cur = state.intro.bgClipId || '';
+    let html = '<option value="">Automático (primer clip)</option>';
+    state.clips.forEach((c, i) => {
+        const label = '#' + (i + 1) + (c.numberText ? ' ' + c.numberText : (c.rankingPosition ? ' #' + c.rankingPosition : ''));
+        html += '<option value="' + c.id + '"' + (cur === c.id ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+    });
+    sel.innerHTML = html;
+    if (cur && state.clips.find(c => c.id === cur)) sel.value = cur;
+}
+
+function handleIntroAudio(file) {    if (!file) return;
     if (introAudioEl) { introAudioEl.pause(); introAudioEl.src = ''; }
     introAudioEl = new Audio(URL.createObjectURL(file));
     introAudioEl.muted = true; // muted by default for preview; unmuted during export via Web Audio
@@ -3493,6 +5781,8 @@ function syncIntroUI() {
     document.getElementById('introBlurVal').textContent = state.intro.blurAmount ?? 20;
     document.getElementById('introOverlay').value = Math.round((state.intro.overlayOpacity ?? 0.4) * 100);
     document.getElementById('introOverlayVal').textContent = Math.round((state.intro.overlayOpacity ?? 0.4) * 100) + '%';
+    refreshIntroBgClipSelect();
+    document.getElementById('introBgMuted').checked = state.intro.bgMuted !== false;
     document.getElementById('introCaptionsEnabled').checked = state.intro.captionsEnabled !== false;
     document.getElementById('introCapBg').checked = state.intro.captionBgEnabled !== false;
     document.getElementById('introCapFont').value = state.intro.captionFont || "'Segoe UI', sans-serif";
@@ -3516,8 +5806,9 @@ function syncIntroUI() {
 
 // ─── VOZ EN OFF ───
 function ensureVo(clip) {
-    if (!clip.vo) clip.vo = { enabled: true, text: '', offset: 0, fileName: '', captions: [], _file: null, audioEl: null, duration: 0 };
+    if (!clip.vo) clip.vo = { enabled: true, text: '', offset: 0, fileName: '', captions: [], censorMarks: [], _file: null, audioEl: null, duration: 0 };
     const vo = clip.vo;
+    if (!Array.isArray(vo.censorMarks)) vo.censorMarks = [];
     if (!vo.capPos) vo.capPos = { x: 0.5, y: 0.62 };
     if (!vo.capFont) vo.capFont = "'Segoe UI', sans-serif";
     if (vo.capSize === undefined) vo.capSize = 40;
@@ -3534,6 +5825,59 @@ function updateVoiceoversEnabled(v) {
     if (!state.voiceoversEnabled) pauseAllStyleAudio();
     scheduleAutoSave();
 }
+// Copia el estilo/configuración/posición de las captions del clip origen y las aplica GLOBALMENTE a todos los clips
+function copyClipCaptionStyleToVo(clipId) {
+    const sel = document.getElementById('vocpsrc_' + clipId);
+    const srcId = sel ? sel.value : null;
+    const src = srcId ? state.clips.find(c => c.id === srcId) : null;
+    if (!src) { alert('Selecciona un clip de origen válido.'); return; }
+
+    // Recolectar el estilo del clip origen (preferir VO, fallback a captionStyle global + captionPos del clip)
+    const srcVo = src.vo || {};
+    const cs = state.captionStyle || {};
+    const style = {
+        capFont:             srcVo.capFont             || "'Segoe UI', sans-serif",
+        capSize:             srcVo.capSize             ?? cs.fontSize ?? 40,
+        capColor:            srcVo.capColor            || cs.color    || '#FFFFFF',
+        capBgEnabled:        srcVo.capBgEnabled !== undefined ? srcVo.capBgEnabled : true,
+        capOutlineEnabled:   srcVo.capOutlineEnabled === true,
+        capOutlineColor:     srcVo.capOutlineColor     || '#000000',
+        capOutlineIntensity: srcVo.capOutlineIntensity ?? 40,
+        capWords:            srcVo.capWords            ?? 3,
+        capPos:              srcVo.capPos ? { x: srcVo.capPos.x, y: srcVo.capPos.y }
+                            : (src.captionPos ? { x: src.captionPos.x, y: src.captionPos.y }
+                            : { x: 0.5, y: 0.62 })
+    };
+
+    // Aplicar a TODOS los clips' VO
+    state.clips.forEach(c => {
+        const vo = ensureVo(c);
+        vo.capFont = style.capFont;
+        vo.capSize = style.capSize;
+        vo.capColor = style.capColor;
+        vo.capBgEnabled = style.capBgEnabled;
+        vo.capOutlineEnabled = style.capOutlineEnabled;
+        vo.capOutlineColor = style.capOutlineColor;
+        vo.capOutlineIntensity = style.capOutlineIntensity;
+        vo.capWords = style.capWords;
+        vo.capPos = { x: style.capPos.x, y: style.capPos.y };
+    });
+
+    // Sincronizar también el estilo global de captions de clip
+    state.captionStyle.color = style.capColor;
+    state.captionStyle.fontSize = style.capSize;
+    state.captionStyle.bgOpacity = style.capBgEnabled ? 0.6 : 0;
+
+    // Sincronizar la posición de las captions de todos los clips
+    state.clips.forEach(c => {
+        c.captionPos = { x: style.capPos.x, y: style.capPos.y };
+    });
+
+    scheduleAutoSave();
+    renderClipsList();
+    drawFrame();
+}
+
 function updateVoField(clipId, f, v) {
     const clip = state.clips.find(c => c.id === clipId);
     if (!clip) return;
@@ -3582,6 +5926,7 @@ function removeVoAudio(clipId) {
     clip.vo._file = null;
     clip.vo.fileName = '';
     clip.vo.duration = 0;
+    clip.vo.censorMarks = []; // las marcas eran tiempos de ese audio
     const nameEl = document.getElementById('voname_' + clipId);
     if (nameEl) nameEl.textContent = '';
     const input = document.getElementById('vofile_' + clipId);
@@ -3631,6 +5976,7 @@ function addFreeze() {
     renderFreezesList();
     drawFrame();
     scheduleAutoSave();
+    renderFxTrack();
 }
 function removeFreeze(fid) {
     const clip = state.clips[currentClipIndex];
@@ -3640,6 +5986,7 @@ function removeFreeze(fid) {
     renderFreezesList();
     drawFrame();
     scheduleAutoSave();
+    renderFxTrack();
 }
 function markFreezeTime(fid) {
     const clip = state.clips[currentClipIndex];
@@ -3656,6 +6003,7 @@ function markFreezeTime(fid) {
     ff.t = rel;
     renderFreezesList();
     scheduleAutoSave();
+    renderFxTrack();
 }
 function updateFreezeField(fid, f, v) {
     const clip = state.clips[currentClipIndex];
@@ -3700,7 +6048,7 @@ function renderFreezesList() {
             '</div>' +
             '<input type="text" value="' + escapeHtml(ff.text || '') + '" placeholder="#2 es el MÁS LOCO" style="width:100%" oninput="updateFreezeField(' + ff.id + ',\'text\',this.value)">' +
             '<div class="form-row" style="margin-top:4px">' +
-                '<label>Fuente</label><select onchange="updateFreezeField(' + ff.id + ',\'font\',this.value)">' + fontOpts + '</select>' +
+                '<label>Fuente</label><select class="freeze-font" data-font="' + (ff.font || '') + '" onchange="updateFreezeField(' + ff.id + ',\'font\',this.value)">' + fontOpts + '</select>' +
                 '<label style="min-width:40px">Color</label>' +
                 '<input type="color" value="' + (ff.color || '#FFFFFF') + '" oninput="updateFreezeField(' + ff.id + ',\'color\',this.value)">' +
             '</div>' +
@@ -3719,6 +6067,7 @@ function renderFreezesList() {
         '</div>';
     });
     container.innerHTML = html;
+    container.querySelectorAll('.freeze-font').forEach(sel => appendExtraFonts(sel, sel.dataset.font || null));
 }
 
 // ─── DISEÑO DE SONIDO ───
@@ -3734,6 +6083,7 @@ function updateSoundDesign() {
         if (volVal && vol) volVal.textContent = vol.value + '%';
     });
     scheduleAutoSave();
+    renderFxTrack();
 }
 function handleSfxFile(kind, file) {
     if (!file) return;
@@ -3760,6 +6110,101 @@ function removeSfxFile(kind) {
     if (rm) rm.style.display = 'none';
     const input = document.getElementById('sfx_' + kind + '_file');
     if (input) input.value = '';
+    scheduleAutoSave();
+}
+
+// ─── CENSURA DE MALAS PALABRAS (UI) ───
+function updateCensor() {
+    const c = state.censor;
+    c.enabled = document.getElementById('censorEnabled').checked;
+    c.bleepVolume = parseInt(document.getElementById('censorBleepVol').value) / 100;
+    document.getElementById('censorBleepVolVal').textContent = Math.round(c.bleepVolume * 100) + '%';
+    if (bleepEl && !bleepEl.paused) bleepEl.volume = c.bleepVolume;
+    if (!c.enabled) { restoreCensorVolumes(state.clips[currentClipIndex]); stopBleep(); }
+    scheduleAutoSave();
+}
+
+function updateCensorWords(v) {
+    state.censor.words = String(v || '').split(',').map(s => s.trim()).filter(Boolean);
+    scheduleAutoSave();
+}
+
+function handleBleepFile(file) {
+    if (!file) return;
+    state.censor._file = file;
+    state.censor.bleepFileName = file.name;
+    attachBleepEl();
+    const nameEl = document.getElementById('censorBleepName');
+    if (nameEl) nameEl.textContent = '🎵 ' + file.name;
+    const rm = document.getElementById('censorBleepRemove');
+    if (rm) rm.style.display = '';
+    const input = document.getElementById('censorBleepFile');
+    if (input) input.value = '';
+    renderAudioMixer();
+    scheduleAutoSave();
+}
+
+function removeBleepFile() {
+    state.censor._file = null;
+    state.censor.bleepFileName = '';
+    if (bleepEl) { bleepEl.pause(); bleepEl.remove(); bleepEl = null; }
+    bleepActiveKey = null;
+    const nameEl = document.getElementById('censorBleepName');
+    if (nameEl) nameEl.textContent = '';
+    const rm = document.getElementById('censorBleepRemove');
+    if (rm) rm.style.display = 'none';
+    const input = document.getElementById('censorBleepFile');
+    if (input) input.value = '';
+    renderAudioMixer();
+    scheduleAutoSave();
+}
+
+// Lanza la detección IA sobre el audio del clip ('video') o su voz en off ('vo')
+function detectCensor(clipId, sub) {
+    aiTargetSub = sub;
+    startAITranscription('censor', clipId);
+}
+
+function getCensorMarks(clip, src) {
+    return src === 'vo' ? (clip.vo ? clip.vo.censorMarks : []) : (clip.censorMarks || []);
+}
+
+function setCensorMarks(clip, src, marks) {
+    if (src === 'vo') ensureVo(clip).censorMarks = marks;
+    else clip.censorMarks = marks;
+}
+
+// Excluir / volver a censurar una palabra detectada (falsos positivos)
+function toggleCensorMark(clipId, src, markId) {
+    const clip = state.clips.find(c => c.id === clipId);
+    if (!clip) return;
+    const m = getCensorMarks(clip, src).find(x => x.id === markId);
+    if (m) m.excluded = !m.excluded;
+    renderClipsList();
+    scheduleAutoSave();
+}
+
+function removeCensorMark(clipId, src, markId) {
+    const clip = state.clips.find(c => c.id === clipId);
+    if (!clip) return;
+    setCensorMarks(clip, src, getCensorMarks(clip, src).filter(x => x.id !== markId));
+    renderClipsList();
+    scheduleAutoSave();
+}
+
+// Marca manual (por si la IA falla): segundos absolutos del archivo de audio/video
+function addCensorMarkManual(clipId, src) {
+    const clip = state.clips.find(c => c.id === clipId);
+    if (!clip) return;
+    const fromEl = document.getElementById('cmFrom_' + src + '_' + clipId);
+    const toEl = document.getElementById('cmTo_' + src + '_' + clipId);
+    const from = Math.max(0, parseFloat(fromEl && fromEl.value) || 0);
+    let to = parseFloat(toEl && toEl.value) || 0;
+    if (!Number.isFinite(to) || to <= from) to = from + 0.5;
+    const marks = getCensorMarks(clip, src).slice();
+    marks.push({ id: 'cm' + (++censorMarkSeq) + '_' + Date.now(), word: 'manual', from, to, excluded: false });
+    setCensorMarks(clip, src, marks);
+    renderClipsList();
     scheduleAutoSave();
 }
 
@@ -3815,6 +6260,7 @@ function updateOutro() {
     drawFrame();
     updateTimeDisplay();
     scheduleAutoSave();
+    renderFxTrack();
 }
 function repackTimelineClipsSafe() {
     try { renderTimelineClips(); } catch(e) {}
@@ -3958,8 +6404,7 @@ function syncStyleEngineUI() {
 // ═══════════════════════════════════════════════════════════
 // ████  AUDIO TRACKS  ████
 // ═══════════════════════════════════════════════════════════
-const audioClipsContainer = document.getElementById('audioClips');
-let audioDragData = null;
+// ████  AUDIO TRACKS  ████
 
 function addAudioTrack(file) {
     if (!file) return;
@@ -4004,6 +6449,7 @@ function removeAudioTrack(id) {
     const t = state.audioTracks[idx];
     if (t.url) URL.revokeObjectURL(t.url);
     if (t.audioEl) t.audioEl.remove();
+    if(tlSelection && tlSelection.type === 'audio' && tlSelection.id === id) tlSelection = null;
     state.audioTracks.splice(idx, 1);
     renderAudioTracks();
     renderTimelineClips();
@@ -4011,120 +6457,105 @@ function removeAudioTrack(id) {
 }
 
 function renderAudioTracks() {
-    if (!audioClipsContainer) return;
+    if (!trackAudioEl) return;
     const total = getTimelineScaleDuration();
-    audioClipsContainer.innerHTML = '';
-    if (total <= 0) return;
+    trackAudioEl.innerHTML = '';
+    if (total <= 0) { renderFxTrack(); return; }
 
     state.audioTracks.forEach(track => {
-        const dur = Math.max(0, track.trimEnd - track.trimStart);
-        const seg = document.createElement('div');
-        seg.className = 'timeline-audio-clip';
-        seg.style.left = (track.timelineStart / total * 100) + '%';
-        seg.style.width = Math.max(dur / total * 100, 1) + '%';
-        seg.title = track.name + ' · ' + formatTime(dur);
-        seg.dataset.trackId = track.id;
+        const dur = Math.max(0, (track.trimEnd || 0) - (track.trimStart || 0)) || track.duration || 1;
+        const sel = tlSelection && tlSelection.type === 'audio' && tlSelection.id === track.id;
+        const block = document.createElement('div');
+        block.className = 'tl-block tl-ablock' + (sel ? ' selected' : '');
+        block.dataset.trackId = track.id;
+        block.style.left = ((track.timelineStart || 0) * tlPxPerSec) + 'px';
+        block.style.width = Math.max(dur * tlPxPerSec, 5) + 'px';
+        block.title = track.name + ' · ' + formatTime(dur);
+
+        const wave = document.createElement('canvas');
+        wave.className = 'tl-wave';
+        block.appendChild(wave);
 
         const lbl = document.createElement('span');
-        lbl.className = 'timeline-audio-clip-label';
+        lbl.className = 'tl-blabel';
         lbl.textContent = '🎵 ' + track.name;
-        seg.appendChild(lbl);
-
-        const trimIn = document.createElement('div');
-        trimIn.className = 'trim-handle trim-in';
-        trimIn.addEventListener('pointerdown', e => startAudioTrimDrag(e, track.id, 'in'));
-
-        const trimOut = document.createElement('div');
-        trimOut.className = 'trim-handle trim-out';
-        trimOut.addEventListener('pointerdown', e => startAudioTrimDrag(e, track.id, 'out'));
+        block.appendChild(lbl);
 
         const delBtn = document.createElement('button');
-        delBtn.className = 'caption-del';
-        delBtn.style.cssText = 'position:absolute;top:-1px;right:-18px;font-size:12px;padding:0 2px;z-index:5;';
+        delBtn.className = 'tl-delbtn';
         delBtn.textContent = '✕';
-        delBtn.title = 'Eliminar';
+        delBtn.title = 'Eliminar audio';
         delBtn.addEventListener('pointerdown', e => { e.stopPropagation(); removeAudioTrack(track.id); });
+        block.appendChild(delBtn);
 
-        seg.append(trimIn, trimOut, delBtn);
-
-        seg.addEventListener('pointerdown', e => {
-            if (e.target.closest('.trim-handle, .caption-del')) return;
-            e.preventDefault();
-            const rect = audioClipsContainer.getBoundingClientRect();
-            audioDragData = {
-                trackId: track.id,
-                startClientX: e.clientX,
-                origStart: track.timelineStart,
-                laneRect: rect
-            };
-        });
-
-        audioClipsContainer.appendChild(seg);
+        block.addEventListener('pointerdown', e => onTlBlockDown(e, { type: 'audio', id: track.id }));
+        if (sel) {
+            const ti = document.createElement('div');
+            ti.className = 'trim-handle trim-in';
+            ti.addEventListener('pointerdown', e => startTrimDrag(e, { kind: 'audio', id: track.id }, 'in'));
+            const to = document.createElement('div');
+            to.className = 'trim-handle trim-out';
+            to.addEventListener('pointerdown', e => startTrimDrag(e, { kind: 'audio', id: track.id }, 'out'));
+            block.append(ti, to);
+        }
+        trackAudioEl.appendChild(block);
+        drawWaveBlock(wave, track);
+        ensureAudioPeaks(track);
     });
+    renderFxTrack();
+    renderAudioMixer();
 }
 
-document.addEventListener('pointermove', e => {
-    if (audioDragData) {
-        e.preventDefault();
-        const track = state.audioTracks.find(t => t.id === audioDragData.trackId);
-        if (!track) return;
-        const total = getTimelineScaleDuration();
-        const dx = e.clientX - audioDragData.startClientX;
-        const dTime = (dx / audioDragData.laneRect.width) * total;
-        track.timelineStart = Math.max(0, audioDragData.origStart + dTime);
+function drawWaveBlock(canvas, track) {
+    const peaks = track._peaks;
+    if (!peaks) return;
+    const wCss = parseFloat(canvas.parentElement.style.width) || 60;
+    const w = Math.min(Math.max(10, Math.round(wCss)), 2000);
+    canvas.width = w;
+    canvas.height = 28;
+    const c = canvas.getContext('2d');
+    c.clearRect(0, 0, w, 28);
+    c.fillStyle = '#8acaff';
+    const n = peaks.length;
+    for (let x = 0; x < w; x++) {
+        const p = peaks[Math.floor((x / w) * n)] || 0;
+        const h = Math.max(1, p * 24);
+        c.fillRect(x, 14 - h / 2, 1, h);
+    }
+}
+
+async function ensureAudioPeaks(track) {
+    if (track._peaks || track._peaksLoading) return;
+    track._peaksLoading = true;
+    try {
+        let buf;
+        if (track.file) buf = await track.file.arrayBuffer();
+        else if (track.url) buf = await fetch(track.url).then(r => r.arrayBuffer());
+        else return;
+        const actx = new (window.AudioContext || window.webkitAudioContext)();
+        const audioBuf = await actx.decodeAudioData(buf);
+        const data = audioBuf.getChannelData(0);
+        const N = 250, step = Math.floor(data.length / N) || 1;
+        const peaks = [];
+        for (let i = 0; i < N; i++) {
+            let max = 0;
+            const off = i * step;
+            for (let j = 0; j < step; j += 16) {
+                const v = Math.abs(data[off + j] || 0);
+                if (v > max) max = v;
+            }
+            peaks.push(max);
+        }
+        const norm = Math.max(...peaks, 0.01);
+        track._peaks = peaks.map(p => p / norm);
+        try { actx.close(); } catch (err) {}
         renderAudioTracks();
+    } catch (err) {
+        // sin forma de onda: el bloque queda sólido
+    } finally {
+        track._peaksLoading = false;
     }
-});
-
-document.addEventListener('pointerup', () => {
-    if (audioDragData) {
-        audioDragData = null;
-        scheduleAutoSave();
-    }
-});
-
-function startAudioTrimDrag(event, trackId, edge) {
-    event.preventDefault();
-    event.stopPropagation();
-    const track = state.audioTracks.find(t => t.id === trackId);
-    if (!track) return;
-    const rect = audioClipsContainer.getBoundingClientRect();
-    audioDragData = {
-        trackId: trackId,
-        edge: edge,
-        startClientX: event.clientX,
-        origTrimStart: track.trimStart,
-        origTrimEnd: track.trimEnd,
-        origStart: track.timelineStart,
-        laneRect: rect,
-        isTrim: true
-    };
 }
-
-// Update audio trim during drag
-function updateAudioTrimDrag(e) {
-    if (!audioDragData || !audioDragData.isTrim) return;
-    const track = state.audioTracks.find(t => t.id === audioDragData.trackId);
-    if (!track) return;
-    const total = getTimelineScaleDuration();
-    const dx = e.clientX - audioDragData.startClientX;
-    const dTime = (dx / audioDragData.laneRect.width) * total;
-
-    if (audioDragData.edge === 'in') {
-        const newTrim = clamp(audioDragData.origTrimStart + dTime, 0, track.trimEnd - 0.1);
-        const delta = newTrim - track.trimStart;
-        track.trimStart = newTrim;
-        track.timelineStart += delta;
-    } else {
-        track.trimEnd = clamp(audioDragData.origTrimEnd + dTime, track.trimStart + 0.1, track.duration || 9999);
-    }
-    renderAudioTracks();
-}
-
-// Hook trim updates into pointermove
-document.addEventListener('pointermove', e => {
-    if (audioDragData && audioDragData.isTrim) updateAudioTrimDrag(e);
-});
 
 // ─── Audio playback sync ───
 function syncAudioPlayback(elapsed) {
@@ -4157,16 +6588,143 @@ function syncAudioPlayback(elapsed) {
     });
 }
 
+// ─── Mezclador de audio: lista todos los audios con volumen ───
+function renderAudioMixer() {
+    const container = document.getElementById('audioMixerList');
+    if (!container) return;
+    let html = '';
+    const items = [];
+
+    // Pistas de audio (música, sound effects importados)
+    state.audioTracks.forEach(track => {
+        items.push({ id: track.id, kind: 'track', name: track.name || 'audio', volume: track.volume ?? 1.0, duration: track.duration, color: '#5a9ada' });
+    });
+    // Voz en off por clip
+    state.clips.forEach((clip, i) => {
+        if (clip.vo && clip.vo.fileName && clip.vo.enabled !== false) {
+            items.push({ id: clip.id, kind: 'vo', name: '🎙️ Voz clip ' + (i + 1), volume: 1.0, color: '#9a7ad8' });
+        }
+    });
+    // Voz del outro
+    if (state.outro.voiceFileName) {
+        items.push({ id: 'outro', kind: 'outro', name: '🔔 Voz outro', volume: 1.0, color: '#caa84a' });
+    }
+    // Audios de intro
+    if (state.intro.audioUrl) {
+        items.push({ id: 'intro', kind: 'intro', name: '🎬 Voz intro', volume: 1.0, color: '#4aca8a' });
+    }
+    // Beep de censura
+    if (state.censor && state.censor.bleepFileName) {
+        items.push({ id: 'bleep', kind: 'bleep', name: '🤬 Beep censura', volume: state.censor.bleepVolume ?? 0.9, color: '#ff9a6a' });
+    }
+
+    if (items.length === 0) {
+        container.innerHTML = '<p class="hint" style="margin:0;color:#6a6a8a">No hay audios en el proyecto todavía.</p>';
+        return;
+    }
+
+    items.forEach(item => {
+        const volPct = Math.round(item.volume * 100);
+        html += '<div class="mixer-item">' +
+            '<div class="mixer-item-header">' +
+                '<span class="mixer-name" style="color:' + item.color + '">' + escapeHtml(item.name) + '</span>' +
+                (item.kind === 'track' ? '<button class="caption-del" title="Eliminar" onclick="removeAudioTrack(\'' + item.id + '\')">✕</button>' : '') +
+            '</div>' +
+            '<div class="mixer-volume-row">' +
+                '<label>🔊</label>' +
+                '<input type="range" min="0" max="100" value="' + volPct + '" oninput="updateMixerVolume(\'' + item.kind + '\',\'' + item.id + '\', this.value)" onclick="event.stopPropagation()">' +
+                '<span class="range-value" id="mixVol_' + item.kind + '_' + item.id + '">' + volPct + '%</span>' +
+            '</div>' +
+        '</div>';
+    });
+    container.innerHTML = html;
+}
+
+function updateMixerVolume(kind, id, val) {
+    const vol = Math.max(0, Math.min(1, parseInt(val) / 100));
+    const span = document.getElementById('mixVol_' + kind + '_' + id);
+    if (span) span.textContent = val + '%';
+
+    if (kind === 'track') {
+        const track = state.audioTracks.find(t => t.id === id);
+        if (track) {
+            track.volume = vol;
+            if (track.audioEl) track.audioEl.volume = vol;
+        }
+    } else if (kind === 'vo') {
+        const clip = state.clips.find(c => c.id === id);
+        if (clip && clip.vo && clip.vo.audioEl) clip.vo.audioEl.volume = vol;
+    } else if (kind === 'outro') {
+        if (outroVoiceEl) outroVoiceEl.volume = vol;
+    } else if (kind === 'intro') {
+        if (introAudioEl) introAudioEl.volume = vol;
+    } else if (kind === 'bleep') {
+        state.censor.bleepVolume = vol;
+        if (bleepEl) bleepEl.volume = vol;
+        const volSlider = document.getElementById('censorBleepVol');
+        if (volSlider) volSlider.value = Math.round(vol * 100);
+        const volVal = document.getElementById('censorBleepVolVal');
+        if (volVal) volVal.textContent = Math.round(vol * 100) + '%';
+    }
+    scheduleAutoSave();
+}
+
 function pauseAllAudioTracks() {
     state.audioTracks.forEach(t => { if (t.audioEl) { t.audioEl.pause(); t.audioEl.muted = true; } });
 }
 
 function toggleSection(h) { h.classList.toggle('collapsed'); h.nextElementSibling.classList.toggle('hidden'); }
 
+// ─── Pestañas de edición (rail izquierdo) ───
+function switchTab(name) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === name));
+    document.querySelectorAll('.rail-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    try { localStorage.setItem('vre_active_tab', name); } catch (e) { /* almacenamiento no disponible */ }
+}
+
+// Restaura la última pestaña usada (o Media por defecto)
+function restoreTab() {
+    let name = null;
+    try { name = localStorage.getItem('vre_active_tab'); } catch (e) { /* ignorar */ }
+    const valid = document.querySelector('.tab-panel[data-tab="' + name + '"]');
+    switchTab(valid ? name : 'media');
+}
+
+// ─── Rail auto-ocultable ───
+// Al apartar el cursor del costado izquierdo, el rail se oculta y su ancho
+// pasa al panel de la categoría activa. Reaparece al acercar el cursor al
+// borde izquierdo de la ventana.
+const RAIL_REVEAL_EDGE = 20;   // px de proximidad al borde para revelarlo
+const RAIL_HIDE_DELAY = 250;   // ms de gracia antes de ocultarlo
+const appMainEl = document.querySelector('.app-main');
+const editorRailEl = document.getElementById('editorRail');
+let railHideTimer = null;
+
+function setRailVisible(visible) {
+    if (appMainEl) appMainEl.classList.toggle('rail-collapsed', !visible);
+}
+function scheduleRailHide() {
+    if (appMainEl && appMainEl.classList.contains('rail-collapsed')) return; // ya oculto
+    clearTimeout(railHideTimer);
+    railHideTimer = setTimeout(() => setRailVisible(false), RAIL_HIDE_DELAY);
+}
+document.addEventListener('mousemove', (e) => {
+    if (!appMainEl || !editorRailEl) return;
+    if (e.clientX <= RAIL_REVEAL_EDGE) {
+        // Cursor en el borde izquierdo: revelar y mantener
+        clearTimeout(railHideTimer);
+        setRailVisible(true);
+    } else if (e.clientX > editorRailEl.offsetWidth + 6) {
+        // Cursor fuera del rail (panel o preview): ocultar con retardo
+        scheduleRailHide();
+    }
+    // Entre el borde y el final del rail (cursor sobre el rail): no hacer nada
+}, { passive: true });
+
 function syncUIFromState() {
+    migrateTitleState();
     document.getElementById('titleFont').value = state.title.font;
-    document.getElementById('titleLine1').value = state.title.line1;
-    document.getElementById('titleLine2').value = state.title.line2;
+    renderTitleLineInputs();
     document.getElementById('titleTextColor').value = state.title.textColor;
     document.getElementById('titleFontSize').value = state.title.fontSize;
     document.getElementById('titleFontSizeVal').textContent = state.title.fontSize;
@@ -4186,6 +6744,14 @@ function syncUIFromState() {
     document.getElementById('numTextOutlineIntensity').value = state.numbers.textOutlineIntensity ?? 50;
     document.getElementById('numTextOutlineIntensityVal').textContent = state.numbers.textOutlineIntensity ?? 50;
 
+    if (document.getElementById('shortsOverlayEnabled')) {
+        document.getElementById('shortsOverlayEnabled').checked = !!(state.shortsOverlay && state.shortsOverlay.enabled);
+        document.getElementById('shortsOverlayOpacity').value = Math.round((state.shortsOverlay?.opacity ?? 0.5) * 100);
+        document.getElementById('shortsOverlayOpacityVal').textContent = Math.round((state.shortsOverlay?.opacity ?? 0.5) * 100) + '%';
+        const hideBtn = document.getElementById('shortsOverlayHideBtn');
+        if (hideBtn) hideBtn.textContent = (state.shortsOverlay && state.shortsOverlay.visible) ? 'Ocultar' : 'Mostrar';
+    }
+
     document.getElementById('barTopColor').value = state.barTop.color;
     document.getElementById('barTopHeight').value = state.barTop.height;
     document.getElementById('barBottomColor').value = state.barBottom.color;
@@ -4200,6 +6766,16 @@ function syncUIFromState() {
     document.getElementById('barBottomBlurVal').textContent = state.barBottom.blur ?? 20;
     document.getElementById('barBottomOverlay').value = state.barBottom.overlay ?? 40;
     document.getElementById('barBottomOverlayVal').textContent = (state.barBottom.overlay ?? 40) + '%';
+
+    // Censura de malas palabras
+    document.getElementById('censorEnabled').checked = state.censor.enabled === true;
+    document.getElementById('censorBleepVol').value = Math.round((state.censor.bleepVolume ?? 0.9) * 100);
+    document.getElementById('censorBleepVolVal').textContent = Math.round((state.censor.bleepVolume ?? 0.9) * 100) + '%';
+    document.getElementById('censorWords').value = (state.censor.words || []).join(', ');
+    const censorNameEl = document.getElementById('censorBleepName');
+    if (censorNameEl) censorNameEl.textContent = state.censor.bleepFileName ? '🎵 ' + state.censor.bleepFileName : '';
+    const censorRmEl = document.getElementById('censorBleepRemove');
+    if (censorRmEl) censorRmEl.style.display = state.censor.bleepFileName ? '' : 'none';
 
     renderBlurBarsList();
 
@@ -4218,8 +6794,28 @@ function syncUIFromState() {
 }
 
 // Init defaults and load saved project
-updateTitle(); updateNumbers(); updateBars(); updateCaptionStyle(); updateIntro();
-updateSoundDesign(); updateScreenTexts(); updateOutro();
+try { restoreTab(); } catch(e) { console.error('restoreTab', e); }
+// Por defecto, exportar en MP4 (WebCodecs, máxima calidad) si el navegador lo soporta
+try { if (webCodecsSupported()) document.getElementById('exportFormat').value = 'mp4'; } catch(e) { /* ignorar */ }
+try { migrateTitleState(); renderTitleLineInputs(); } catch(e) { console.error('initTitleLines', e); }
+try { updateTitle(); } catch(e) { console.error('updateTitle', e); }
+try { updateNumbers(); } catch(e) { console.error('updateNumbers', e); }
+try { updateBars(); } catch(e) { console.error('updateBars', e); }
+try { updateCaptionStyle(); } catch(e) { console.error('updateCaptionStyle', e); }
+try { updateIntro(); } catch(e) { console.error('updateIntro', e); }
+try { updateSoundDesign(); } catch(e) { console.error('updateSoundDesign', e); }
+try { updateCensor(); } catch(e) { console.error('updateCensor', e); }
+try { updateScreenTexts(); } catch(e) { console.error('updateScreenTexts', e); }
+try { updateOutro(); } catch(e) { console.error('updateOutro', e); }
+// Retrasar el render del timeline para que el layout flex esté calculado
+requestAnimationFrame(() => { try { refreshTL(); } catch(e) { console.error('refreshTL', e); } });
+setTimeout(() => { try { refreshTL(); } catch(e) { console.error('refreshTL2', e); } }, 200);
+if (tlScroll) tlScroll.addEventListener('scroll', drawRuler);
+window.addEventListener('resize', () => { syncTlWidths(); renderTimelineClips(); renderAudioTracks(); });
+// ResizeObserver para redibujar la regla cuando el contenedor cambie de tamaño
+if (window.ResizeObserver && tlScroll) {
+    new ResizeObserver(() => { drawRuler(); }).observe(tlScroll);
+}
 loadProject().then(loaded => {
     if (loaded) {
         syncUIFromState();
@@ -4227,4 +6823,7 @@ loadProject().then(loaded => {
         console.log('Proyecto cargado desde almacenamiento local');
     }
     renderPresetsList();
+    renderAudioMixer();
+    // Forzar render del timeline después de cargar
+    requestAnimationFrame(() => { try { refreshTL(); } catch(e) { console.error('refreshTL after load', e); } });
 });
