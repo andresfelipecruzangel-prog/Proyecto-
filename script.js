@@ -7,6 +7,7 @@ const PREVIEW_W = 405;
 const PREVIEW_H = 720;
 const SCALE = PREVIEW_W / EXPORT_W;
 const FPS = 30;
+const EXPORT_FRAME_MS = 1000 / FPS;
 
 // Polyfill: roundRect for older browsers
 if (!CanvasRenderingContext2D.prototype.roundRect) {
@@ -829,6 +830,13 @@ function hexToRgba(hex, alpha) {
 // ═══════════════════════════════════════════════════════════
 // ████  CANVAS RENDERING  ████
 // ═══════════════════════════════════════════════════════════
+// A seeking element still reports readyState 2 while holding the frame from *before*
+// the seek, so drawing it during a clip change shows the wrong content.
+function isClipDrawable(clip) {
+    return !!(clip && clip.videoEl && clip.videoEl.readyState >= 2
+              && !clip.videoEl.seeking && clip.videoEl.videoWidth > 0);
+}
+
 function drawVideoCover(c, clip, dx, dy, dw, dh, s) {
     if (!clip || !clip.videoEl || clip.videoEl.readyState < 2) return;
     const video = clip.videoEl;
@@ -1062,13 +1070,7 @@ function drawIntroFrame(c, s) {
 
     // Blurred video frame as background
     const bgClip = state.clips.find(cl => cl.videoEl && cl.videoEl.readyState >= 2);
-    if (bgClip) {
-        c.save();
-        c.filter = `blur(${intro.blurAmount * s}px)`;
-        drawVideoCover(c, bgClip, 0, 0, cW, cH, s);
-        c.filter = 'none';
-        c.restore();
-    }
+    if (bgClip) drawBlurredCover(c, bgClip, intro.blurAmount * s, s);
 
     // Dark overlay for readability
     if (intro.overlayOpacity > 0) {
@@ -1455,11 +1457,7 @@ function drawOutroBackground(c, s) {
     if (!bgClip || !bgClip.videoEl || bgClip.videoEl.readyState < 2) return;
     const cW = c.canvas.width;
     const cH = c.canvas.height;
-    c.save();
-    c.filter = `blur(${Math.max(1, (o.bgBlur ?? 20) * s)}px)`;
-    drawVideoCover(c, bgClip, 0, 0, cW, cH, s);
-    c.filter = 'none';
-    c.restore();
+    drawBlurredCover(c, bgClip, Math.max(1, (o.bgBlur ?? 20) * s), s);
     const ov = clamp(o.bgOverlay ?? 40, 0, 100) / 100;
     if (ov > 0) {
         c.fillStyle = `rgba(0,0,0,${ov})`;
@@ -1570,30 +1568,100 @@ function drawBarsAndPercentage(c, s) {
 }
 
 
+const BLUR_DOWNSCALE = 4;
+let blurScratch = null, blurScratchCtx = null;
+let coverScratch = null, coverScratchCtx = null;
+
+// Full-canvas blurred video backdrop, used by the intro and the outro. Rasterizing at
+// 1/BLUR_DOWNSCALE and blurring the small copy costs a fraction of running the filter
+// over a full 1080x1920 video draw, which both were doing on every frame.
+function drawBlurredCover(c, clip, blurPx, s) {
+    if (!clip || !clip.videoEl || clip.videoEl.readyState < 2) return;
+    const cW = c.canvas.width;
+    const cH = c.canvas.height;
+    const sw = Math.max(1, Math.round(cW / BLUR_DOWNSCALE));
+    const sh = Math.max(1, Math.round(cH / BLUR_DOWNSCALE));
+    if (!coverScratch) {
+        coverScratch = document.createElement('canvas');
+        coverScratchCtx = coverScratch.getContext('2d', { alpha: false });
+    }
+    if (coverScratch.width !== sw || coverScratch.height !== sh) {
+        coverScratch.width = sw;
+        coverScratch.height = sh;
+    }
+    coverScratchCtx.fillStyle = '#000';
+    coverScratchCtx.fillRect(0, 0, sw, sh);
+    drawVideoCover(coverScratchCtx, clip, 0, 0, sw, sh, s / BLUR_DOWNSCALE);
+
+    // Overdraw by the blur radius so the filter samples real pixels at the borders
+    // instead of fading them out into a dark vignette.
+    const radius = Math.max(1, blurPx);
+    const pad = Math.ceil(radius);
+    c.save();
+    c.filter = `blur(${radius}px)`;
+    c.drawImage(coverScratch, 0, 0, sw, sh, -pad, -pad, cW + pad * 2, cH + pad * 2);
+    c.filter = 'none';
+    c.restore();
+}
+
 function drawBlurBars(c, s) {
     blurBarBBoxes = [];
     const clip = state.clips[currentClipIndex];
     if (!clip || !clip.videoEl || clip.videoEl.readyState < 2) return;
+    // Mid-transition the video layer is still holding the outgoing clip, so bars taken
+    // from the incoming one would blur content that is not on screen.
+    if (isPlaying && !isClipDrawable(clip)) return;
     const bars = clip.blurBars;
     if (!bars || bars.length === 0) return;
 
     const cW = c.canvas.width;
     const cH = c.canvas.height;
 
+    // The frame is rasterized once into a downscaled scratch canvas and each bar is
+    // blitted out of it. The old code re-drew the full-size video through a blur filter
+    // once per bar, which at 1080x1920 costs tens of ms each and was the main reason
+    // clips with blur bars dropped frames while exporting.
+    const sw = Math.max(1, Math.round(cW / BLUR_DOWNSCALE));
+    const sh = Math.max(1, Math.round(cH / BLUR_DOWNSCALE));
+    if (!blurScratch) {
+        blurScratch = document.createElement('canvas');
+        blurScratchCtx = blurScratch.getContext('2d', { alpha: false });
+    }
+    if (blurScratch.width !== sw || blurScratch.height !== sh) {
+        blurScratch.width = sw;
+        blurScratch.height = sh;
+    }
+    blurScratchCtx.fillStyle = '#000';
+    blurScratchCtx.fillRect(0, 0, sw, sh);
+    drawVideoCover(blurScratchCtx, clip, 0, 0, sw, sh, s / BLUR_DOWNSCALE);
+
     for (const bar of bars) {
         const bx = bar.x * s;
         const by = bar.y * s;
         const bw = Math.max(1, bar.w * s);
         const bh = Math.max(1, bar.h * s);
+        const radius = Math.max(1, bar.blur) * s;
 
-        c.save();
-        c.beginPath();
-        c.rect(bx, by, bw, bh);
-        c.clip();
-        c.filter = `blur(${Math.max(1, bar.blur) * s}px)`;
-        drawVideoCover(c, clip, 0, 0, cW, cH, s);
-        c.filter = 'none';
-        c.restore();
+        // Sample past the bar edges so the blur pulls in real pixels instead of fading
+        // the border out to transparent.
+        const pad = Math.ceil(radius);
+        const sx = Math.max(0, Math.floor((bx - pad) / BLUR_DOWNSCALE));
+        const sy = Math.max(0, Math.floor((by - pad) / BLUR_DOWNSCALE));
+        const sx2 = Math.min(sw, Math.ceil((bx + bw + pad) / BLUR_DOWNSCALE));
+        const sy2 = Math.min(sh, Math.ceil((by + bh + pad) / BLUR_DOWNSCALE));
+
+        if (sx2 > sx && sy2 > sy) {
+            c.save();
+            c.beginPath();
+            c.rect(bx, by, bw, bh);
+            c.clip();
+            c.filter = `blur(${radius}px)`;
+            c.drawImage(blurScratch, sx, sy, sx2 - sx, sy2 - sy,
+                        sx * BLUR_DOWNSCALE, sy * BLUR_DOWNSCALE,
+                        (sx2 - sx) * BLUR_DOWNSCALE, (sy2 - sy) * BLUR_DOWNSCALE);
+            c.filter = 'none';
+            c.restore();
+        }
 
         blurBarBBoxes.push({ id: bar.id, x: bx, y: by, w: bw, h: bh });
     }
@@ -1609,7 +1677,10 @@ function drawFrame() {
     ctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
 
     const clip = state.clips[currentClipIndex];
-    if (clip) drawVideoCover(ctx, clip, 0, 0, PREVIEW_W, PREVIEW_H, SCALE);
+    // Only fall back to the outgoing clip during a real transition. While scrubbing, the
+    // current clip seeks constantly and swapping in a different clip would flicker.
+    const videoSrc = (isClipDrawable(clip) || !isPlaying) ? clip : state.clips[currentClipIndex - 1];
+    if (videoSrc) drawVideoCover(ctx, videoSrc, 0, 0, PREVIEW_W, PREVIEW_H, SCALE);
 
     drawBlurBars(ctx, SCALE);
     drawBarsAndPercentage(ctx, SCALE);
@@ -1880,11 +1951,24 @@ canvas.addEventListener('mouseleave', () => {
 // ═══════════════════════════════════════════════════════════
 // ████  PLAYBACK & LOOP  ████
 // ═══════════════════════════════════════════════════════════
-function renderLoop() {
-    drawFrame();
-    if (isPlaying && !isExporting) updatePlaybackState();
-    if (isExporting && exportCtx) drawExportFrame();
-    if (!isDraggingTimeline) updateTimelineUI();
+let exportFrameClock = 0;
+
+function renderLoop(now) {
+    if (isExporting && exportCtx) {
+        // The export overlay covers the preview canvas, so drawing it here would double
+        // the per-frame cost for something nobody sees. Export drawing is paced to FPS:
+        // rAF fires at the display refresh rate, so on a 60/120Hz screen the old loop
+        // rendered 2-4 full 1080x1920 frames for every frame actually captured.
+        if (now - exportFrameClock >= EXPORT_FRAME_MS) {
+            exportFrameClock = Math.max(now - EXPORT_FRAME_MS, exportFrameClock + EXPORT_FRAME_MS);
+            drawExportFrame();
+            if (exportFrameTrack) exportFrameTrack.requestFrame();
+        }
+    } else {
+        drawFrame();
+        if (isPlaying) updatePlaybackState();
+        if (!isDraggingTimeline) updateTimelineUI();
+    }
     requestAnimationFrame(renderLoop);
 }
 requestAnimationFrame(renderLoop);
@@ -2386,6 +2470,20 @@ async function playCurrentClip() {
     state.clips.forEach(c => {
         if (c.videoEl && c !== clip) { c.videoEl.muted = true; }
     });
+
+    prerollClip(currentClipIndex + 1);
+}
+
+// Decode and seek the upcoming clip while the current one is still on screen, so the
+// switch lands on a frame that is already there instead of waiting on a seek.
+function prerollClip(index) {
+    const clip = state.clips[index];
+    if (!clip || !clip.videoEl) return;
+    const v = clip.videoEl;
+    if (v.readyState < 1) return;
+    if (Math.abs(v.currentTime - clip.trimStart) > 0.05) {
+        try { v.currentTime = clip.trimStart; } catch (e) {}
+    }
 }
 
 function updatePlaybackState() {
@@ -2396,6 +2494,7 @@ function updatePlaybackState() {
         if (elapsed >= state.intro.duration) {
             isInIntro = false;
             if (introAudioEl) { introAudioEl.pause(); introAudioEl.muted = true; }
+            restoreIntroBgClip();
             currentClipIndex = 0;
             playCurrentClip();
         }
@@ -2423,14 +2522,29 @@ function updatePlaybackState() {
     }
 }
 
+// The intro borrows a random clip and parks it on a random frame to use as its blurred
+// backdrop. playCurrentClip() only re-seeks a clip that sits outside its trim range, so
+// a clip left partway through by the intro later starts from that random point and the
+// export silently drops however much of it the seek skipped — a different amount each run.
+let introBgClipIndex = -1;
+function restoreIntroBgClip() {
+    const clip = state.clips[introBgClipIndex];
+    introBgClipIndex = -1;
+    if (!clip || !clip.videoEl) return;
+    try { clip.videoEl.currentTime = clip.trimStart; } catch (e) {}
+}
+
 function startIntro() {
     isInIntro = true;
     introStartTime = performance.now();
 
     // Seek a random clip to a random position for blurred background
-    const clipsWithVideo = state.clips.filter(c => c.videoEl && c.videoEl.readyState >= 2);
-    if (clipsWithVideo.length > 0) {
-        const randomClip = clipsWithVideo[Math.floor(Math.random() * clipsWithVideo.length)];
+    introBgClipIndex = -1;
+    const readyIndexes = [];
+    state.clips.forEach((c, i) => { if (c.videoEl && c.videoEl.readyState >= 2) readyIndexes.push(i); });
+    if (readyIndexes.length > 0) {
+        introBgClipIndex = readyIndexes[Math.floor(Math.random() * readyIndexes.length)];
+        const randomClip = state.clips[introBgClipIndex];
         const randomTime = Math.random() * (randomClip.duration || 0);
         try { randomClip.videoEl.currentTime = randomTime; randomClip.videoEl.pause(); } catch(e) {}
     }
@@ -2448,7 +2562,7 @@ function togglePlay() {
     if (isExporting || state.clips.length === 0) return;
     if (isPlaying) {
         isPlaying = false; document.getElementById('btnPlay').textContent = '▶ Play';
-        if (isInIntro) { isInIntro = false; if (introAudioEl) { introAudioEl.pause(); introAudioEl.muted = true; } }
+        if (isInIntro) { isInIntro = false; if (introAudioEl) { introAudioEl.pause(); introAudioEl.muted = true; } restoreIntroBgClip(); }
         stopOutroPhase();
         pauseAllStyleAudio();
         state.clips.forEach(c => { if(c.videoEl) { c.videoEl.pause(); c.videoEl.muted = true; } });
@@ -2483,6 +2597,39 @@ function stopPlayback() {
 let exportRecorder, exportChunks, exportCanvas, exportCtx;
 let exportAudioCtx = null;   // shared AudioContext (sources are permanent per element)
 let exportAudioDest = null;  // recording destination for the current export
+let exportFrameTrack = null; // canvas track driven manually via requestFrame()
+let exportWentHidden = false;
+let lastProgressPct = -1;
+
+// Chrome reports isTypeSupported('video/mp4') as false while still supporting the same
+// container with an explicit codec string, so the plain type alone silently downgraded
+// every MP4 export to WebM.
+function pickRecorderMime(fmt) {
+    const mp4 = [
+        'video/mp4;codecs=avc1.640034,mp4a.40.2',
+        'video/mp4;codecs=avc1.4d0034,mp4a.40.2',
+        'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+        'video/mp4;codecs=h264,aac',
+        'video/mp4'
+    ];
+    const webm = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm'
+    ];
+    if (fmt === 'mp4') {
+        const hit = mp4.find(m => MediaRecorder.isTypeSupported(m));
+        if (hit) return { mime: hit, ext: 'mp4' };
+    }
+    const hit = webm.find(m => MediaRecorder.isTypeSupported(m));
+    return { mime: hit || 'video/webm', ext: 'webm' };
+}
+
+// rAF is paused while the tab is hidden, but MediaRecorder keeps recording in real time,
+// so a backgrounded export bakes in a frozen stretch that cannot be recovered afterwards.
+function onExportVisibilityChange() {
+    if (document.hidden && isExporting) exportWentHidden = true;
+}
 
 function drawExportFrame() {
     if (isInIntro) {
@@ -2497,7 +2644,11 @@ function drawExportFrame() {
     }
     exportCtx.fillStyle = '#000'; exportCtx.fillRect(0, 0, EXPORT_W, EXPORT_H);
     const clip = state.clips[currentClipIndex];
-    if (clip) drawVideoCover(exportCtx, clip, 0, 0, EXPORT_W, EXPORT_H, 1);
+    // playCurrentClip() is async: for the few frames it spends seeking the incoming clip
+    // the new element has nothing to draw, which used to record a burst of black frames
+    // at every transition. Hold the outgoing clip's last frame instead.
+    const videoSrc = isClipDrawable(clip) ? clip : state.clips[currentClipIndex - 1];
+    if (videoSrc) drawVideoCover(exportCtx, videoSrc, 0, 0, EXPORT_W, EXPORT_H, 1);
     drawBlurBars(exportCtx, 1);
     drawBarsAndPercentage(exportCtx, 1);
     drawTitleLine(exportCtx, state.title.line1, state.layout.title1Pos, state.title.font, state.title.fontSize, state.title.textColor, 1);
@@ -2513,10 +2664,14 @@ function drawExportFrame() {
 async function startExport() {
     if (state.clips.length === 0) return alert('Agrega al menos un clip.');
     stopPlayback();
-    isExporting = true; exportChunks = [];
+    isExporting = true; exportChunks = []; lastProgressPct = -1;
     exportCanvas = document.createElement('canvas');
     exportCanvas.width = EXPORT_W; exportCanvas.height = EXPORT_H;
-    exportCtx = exportCanvas.getContext('2d');
+    exportCtx = exportCanvas.getContext('2d', { alpha: false });
+    // Source clips are often smaller than 1080x1920 (TikTok downloads are commonly
+    // 576x1024), and the default 'low' resampler makes those upscales look soft.
+    exportCtx.imageSmoothingEnabled = true;
+    exportCtx.imageSmoothingQuality = 'high';
 
     // ─── AUDIO CAPTURE ───
     // Route each clip's audio into a recording destination (not to speakers).
@@ -2581,14 +2736,37 @@ async function startExport() {
     }
 
     const fmt = document.getElementById('exportFormat').value;
-    let mime = 'video/webm; codecs=vp9'; let ext = 'webm';
-    if(fmt === 'mp4' && MediaRecorder.isTypeSupported('video/mp4')) { mime = 'video/mp4'; ext = 'mp4'; }
+    const picked = pickRecorderMime(fmt);
+    const mime = picked.mime, ext = picked.ext;
+    if (fmt === 'mp4' && ext !== 'mp4') {
+        alert('Este navegador no puede grabar MP4/H.264. Se exportará en WebM.');
+    }
 
-    const stream = exportCanvas.captureStream(FPS);
+    const quality = document.getElementById('exportQuality');
+    const videoBps = quality ? parseInt(quality.value, 10) : 16000000;
+
+    // captureStream(0) hands frame timing to us: exactly one captured frame per frame
+    // drawn. With a fixed rate the capture clock and the draw clock run independently,
+    // so frames get silently duplicated or skipped and motion judders.
+    let stream = null;
+    exportFrameTrack = null;
+    try {
+        const manual = exportCanvas.captureStream(0);
+        const vTrack = manual.getVideoTracks()[0];
+        if (vTrack && typeof vTrack.requestFrame === 'function') {
+            stream = manual;
+            exportFrameTrack = vTrack;
+        } else {
+            manual.getTracks().forEach(t => t.stop());
+        }
+    } catch (e) {
+        console.warn('Manual frame capture unavailable, falling back to timed capture:', e);
+    }
+    if (!stream) stream = exportCanvas.captureStream(FPS);
     if (exportAudioDest) {
         exportAudioDest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
     }
-    exportRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000, audioBitsPerSecond: 128000 });
+    exportRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: videoBps, audioBitsPerSecond: 192000 });
     exportRecorder.ondataavailable = e => { if (e.data.size) exportChunks.push(e.data); };
     exportRecorder.onstop = () => {
         const url = URL.createObjectURL(new Blob(exportChunks, { type: mime }));
@@ -2612,6 +2790,14 @@ async function startExport() {
         });
     }
 
+    // Put a real frame on the canvas before recording opens, otherwise the first
+    // captured frame is the blank canvas.
+    exportWentHidden = false;
+    document.addEventListener('visibilitychange', onExportVisibilityChange);
+    exportFrameClock = performance.now();
+    drawExportFrame();
+    if (exportFrameTrack) exportFrameTrack.requestFrame();
+
     exportRecorder.start(100);
 
     if (state.intro.enabled) {
@@ -2624,8 +2810,12 @@ async function startExport() {
 function updateExportProgress() {
     const tot = getTotalDuration();
     const pct = tot > 0 ? Math.min(100, (getElapsedTime() / tot) * 100) : 0;
-    document.getElementById('exportProgress').style.width = pct + '%';
-    document.getElementById('exportProgressText').textContent = Math.round(pct) + '%';
+    const rounded = Math.round(pct);
+    if (rounded !== lastProgressPct) {
+        lastProgressPct = rounded;
+        document.getElementById('exportProgress').style.width = pct + '%';
+        document.getElementById('exportProgressText').textContent = rounded + '%';
+    }
 
     // Sync audio tracks during export
     syncExportAudioTracks(getElapsedTime());
@@ -2636,6 +2826,7 @@ function updateExportProgress() {
         if (elapsed >= state.intro.duration) {
             isInIntro = false;
             if (introAudioEl) introAudioEl.pause();
+            restoreIntroBgClip();
             currentClipIndex = 0;
             playCurrentClip();
         }
@@ -2700,7 +2891,16 @@ function syncExportAudioTracks(elapsed) {
 function cancelExport() { exportRecorder?.stop(); finishExport(); }
 function finishExport() {
     isExporting = false; isPlaying = false; exportRecorder = null; exportCtx = null;
+    exportFrameTrack = null;
     isInIntro = false;
+    document.removeEventListener('visibilitychange', onExportVisibilityChange);
+    if (exportWentHidden) {
+        exportWentHidden = false;
+        alert('⚠️ La pestaña estuvo en segundo plano durante la exportación.\n\n' +
+              'El navegador congela el renderizado mientras la pestaña no está visible, ' +
+              'así que el video puede tener tramos congelados. Vuelve a exportar dejando ' +
+              'esta pestaña al frente.');
+    }
     stopOutroPhase();
     // Detach audio routing and mute elements again (preview stays silent as before)
     exportAudioDest = null;
