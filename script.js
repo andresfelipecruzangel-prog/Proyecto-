@@ -139,6 +139,7 @@ let state = {
         fontSize: 64
     },
     clips: [],
+    images: [],
     numbers: {
         font: "'Segoe UI', Arial, sans-serif",
         fontSize: 44,
@@ -342,6 +343,7 @@ const tlScroll = document.getElementById('tlScroll');
 const tlInner = document.getElementById('tlInner');
 const tlRulerCanvas = document.getElementById('tlRuler');
 const tlPlayheadEl = document.getElementById('tlPlayhead');
+const trackImagesEl = document.getElementById('trackImages');
 const trackVideoEl = document.getElementById('trackVideo');
 const trackAudioEl = document.getElementById('trackAudio');
 const trackFxEl = document.getElementById('trackFx');
@@ -445,6 +447,7 @@ async function saveProject() {
             clipIdCounter,
             audioTrackIdCounter,
             blurBarIdCounter,
+            imageIdCounter,
             intro: {
                 enabled: state.intro.enabled,
                 duration: state.intro.duration,
@@ -507,6 +510,17 @@ async function saveProject() {
                 fileType: c.file ? c.file.type : '',
                 hasVideo: !!c.file
             })),
+            images: (state.images || []).map(im => ({
+                id: im.id,
+                name: im.name,
+                timelineStart: im.timelineStart,
+                duration: im.duration,
+                x: im.x, y: im.y, w: im.w, h: im.h,
+                natW: im.natW, natH: im.natH,
+                fadeIn: im.fadeIn, fadeOut: im.fadeOut,
+                hasTransparency: im.hasTransparency,
+                fileType: im.file ? im.file.type : 'image/png'
+            })),
             audioTracks: state.audioTracks.map(t => ({
                 id: t.id,
                 name: t.name,
@@ -538,6 +552,14 @@ async function saveProject() {
             if (clip.file) {
                 const buffer = await clip.file.arrayBuffer();
                 await putItem(STORE_VIDEOS, clip.id, { name: clip.file.name, type: clip.file.type, buffer });
+            }
+        }
+
+        // Save each image file as ArrayBuffer (resolución original intacta)
+        for (const img of (state.images || [])) {
+            if (img.file) {
+                const buffer = await img.file.arrayBuffer();
+                await putItem(STORE_VIDEOS, 'img_' + img.id, { name: img.file.name, type: img.file.type, buffer });
             }
         }
 
@@ -630,6 +652,7 @@ async function loadProject() {
         state.timelineScaleDuration = saved.timelineScaleDuration || 0;
         currentClipIndex = saved.currentClipIndex || 0;
         clipIdCounter = saved.clipIdCounter || 0;
+        imageIdCounter = saved.imageIdCounter || 0;
         audioTrackIdCounter = saved.audioTrackIdCounter || 0;
         freezeIdCounter = saved.freezeIdCounter || state.freezeIdCounter || 0;
         numberPosTemplate = Array.isArray(saved.numberPositionsTemplate) ? saved.numberPositionsTemplate : [];
@@ -738,6 +761,33 @@ async function loadProject() {
             state.clips.forEach(c => { c.numberColor = ''; });
         }
         repackTimelineClips();
+
+        // Restore images (overlay layer)
+        state.images = [];
+        for (const savedImg of (saved.images || [])) {
+            const stored = await getItem(STORE_VIDEOS, 'img_' + savedImg.id);
+            if (!stored || !stored.buffer) continue;
+            const type = stored.type || savedImg.fileType || 'image/png';
+            const blob = new Blob([stored.buffer], { type });
+            const img = {
+                id: savedImg.id,
+                type: 'image',
+                name: savedImg.name || stored.name || 'imagen',
+                file: new File([blob], stored.name || savedImg.name || 'imagen', { type }),
+                url: '',
+                imgEl: null,
+                timelineStart: savedImg.timelineStart || 0,
+                duration: savedImg.duration || IMAGE_DEFAULT_DURATION,
+                x: savedImg.x || 0, y: savedImg.y || 0,
+                w: savedImg.w || 0, h: savedImg.h || 0,
+                natW: savedImg.natW || 0, natH: savedImg.natH || 0,
+                fadeIn: savedImg.fadeIn || 0, fadeOut: savedImg.fadeOut || 0,
+                hasTransparency: savedImg.hasTransparency === true
+            };
+            img.url = URL.createObjectURL(img.file);
+            state.images.push(img);
+            loadImageElement(img);
+        }
 
         // Restore intro audio file
         if (state.intro.audioUrl) {
@@ -2047,9 +2097,539 @@ function drawVideoEdgeGuides(c) {
     c.restore();
 }
 
+// ═══════════════════════════════════════════════════════════
+// ████  CAPA DE IMÁGENES (overlay sobre el video)  ████
+// ═══════════════════════════════════════════════════════════
+// Una imagen es un elemento ligero que vive en su propia capa, por encima del
+// video y por debajo de los textos: mientras está activa se dibuja sobre el clip
+// que esté sonando y respeta su canal alfa. Comparte título, numeración y barras
+// con el resto del video, pero no lleva Momento Clave, Voz en Off, Diseño de
+// Sonido ni subtítulos.
+const IMAGE_DEFAULT_DURATION = 5;   // segundos en el timeline (editable)
+const IMAGE_MIN_W = 160;            // ancho mínimo, en píxeles de exportación
+const IMAGE_MIN_DURATION = 0.2;     // segundos
+const IMAGE_MAX_FADE = 1.0;         // segundos por lado
+const IMAGE_HANDLE_R = 6;           // radio del manejador de esquina, en píxeles de preview
+
+let imageIdCounter = 0;
+let hoveredImageId = null;   // imagen bajo el cursor: revela sus 4 manejadores
+let selectedImageId = null;  // imagen seleccionada (panel de edición y timeline)
+let imageBBoxes = [];        // [{id, x, y, w, h}] en coordenadas de preview
+let imageResize = null;      // arrastre de un manejador de esquina en curso
+let imageDrag = null;        // arrastre libre de la imagen por el canvas
+
+function generateImageId() { return 'img_' + (++imageIdCounter) + '_' + Date.now(); }
+function findImage(id) { return (state.images || []).find(im => im.id === id) || null; }
+function isImageFile(file) { return !!file && /^image\/(jpeg|png|webp)$/.test(file.type); }
+
+// Un PNG/WEBP puede traer canal alfa: se detecta sobre una copia reducida, que es
+// suficiente porque la bandera es informativa — el dibujo respeta siempre el alfa real.
+function detectImageAlpha(imgEl) {
+    try {
+        const max = 64;
+        const r = Math.min(max / imgEl.naturalWidth, max / imgEl.naturalHeight, 1);
+        const cnv = document.createElement('canvas');
+        cnv.width = Math.max(1, Math.round(imgEl.naturalWidth * r));
+        cnv.height = Math.max(1, Math.round(imgEl.naturalHeight * r));
+        const cc = cnv.getContext('2d', { willReadFrequently: true });
+        cc.drawImage(imgEl, 0, 0, cnv.width, cnv.height);
+        const d = cc.getImageData(0, 0, cnv.width, cnv.height).data;
+        for (let i = 3; i < d.length; i += 4) if (d[i] < 250) return true;
+    } catch (e) { /* píxeles no accesibles */ }
+    return false;
+}
+
+// Tamaño inicial: la imagen entra a resolución nativa, recortada al 60% del canvas
+// para que quepa de un vistazo. Nunca se recomprime, solo cambia la escala de dibujo.
+function fitInitialImageSize(natW, natH) {
+    const ar = natW / natH;
+    let w = Math.min(natW, EXPORT_W * 0.6);
+    let h = w / ar;
+    if (h > EXPORT_H * 0.6) { h = EXPORT_H * 0.6; w = h * ar; }
+    if (w < IMAGE_MIN_W) { w = IMAGE_MIN_W; h = w / ar; }
+    return { w, h };
+}
+
+function addImageFromFile(file) {
+    if (!isImageFile(file)) return null;
+    const img = {
+        id: generateImageId(),
+        type: 'image',
+        name: file.name || 'imagen',
+        file,
+        url: URL.createObjectURL(file),
+        imgEl: null,
+        timelineStart: Math.max(0, Math.round(getElapsedTime() * 100) / 100),
+        duration: IMAGE_DEFAULT_DURATION,
+        x: 0, y: 0, w: 0, h: 0,
+        natW: 0, natH: 0,
+        fadeIn: 0, fadeOut: 0,
+        hasTransparency: false
+    };
+    if (!state.images) state.images = [];
+    state.images.push(img);
+    loadImageElement(img);
+    selectImage(img.id);
+    return img.id;
+}
+
+// Crea el <img> en memoria a resolución completa. Es la única fuente de píxeles:
+// tanto el preview como la exportación dibujan desde aquí.
+function loadImageElement(img, onReady) {
+    const el = new Image();
+    el.decoding = 'async';
+    el.onload = () => {
+        img.natW = el.naturalWidth;
+        img.natH = el.naturalHeight;
+        if (!img.w || !img.h) {
+            const fit = fitInitialImageSize(img.natW, img.natH);
+            img.w = fit.w; img.h = fit.h;
+            img.x = (EXPORT_W - img.w) / 2;
+            img.y = (EXPORT_H - img.h) / 2;
+        }
+        img.hasTransparency = detectImageAlpha(el);
+        renderImagesTrack();
+        renderMediaLibrary();
+        renderImagePanel();
+        drawFrame();
+        scheduleAutoSave();
+        if (onReady) onReady();
+    };
+    el.onerror = () => {
+        alert('No se pudo leer la imagen "' + img.name + '". Usa JPG, PNG o WEBP.');
+        removeImage(img.id);
+    };
+    el.src = img.url;
+    img.imgEl = el;
+}
+
+function getImagesEnd() {
+    return (state.images || []).reduce((max, im) => Math.max(max, (im.timelineStart || 0) + (im.duration || 0)), 0);
+}
+
+// Fade in y fade out son independientes; si juntos superan la duración en pantalla
+// se reparten proporcionalmente para no solaparse.
+function getImageFades(img) {
+    let fi = clamp(img.fadeIn || 0, 0, IMAGE_MAX_FADE);
+    let fo = clamp(img.fadeOut || 0, 0, IMAGE_MAX_FADE);
+    const dur = Math.max(0, img.duration || 0);
+    const sum = fi + fo;
+    if (sum > dur && sum > 0) { const k = dur / sum; fi *= k; fo *= k; }
+    return { fadeIn: fi, fadeOut: fo };
+}
+
+// Opacidad del fade en el instante t. Se aplica como globalAlpha, así se multiplica
+// con la transparencia propia del PNG en vez de sobrescribirla.
+function imageAlphaAt(img, t) {
+    const dur = Math.max(0, img.duration || 0);
+    const local = t - (img.timelineStart || 0);
+    if (local < 0 || local > dur) return 0;
+    const { fadeIn, fadeOut } = getImageFades(img);
+    let a = 1;
+    if (fadeIn > 0 && local < fadeIn) a = local / fadeIn;
+    if (fadeOut > 0 && local > dur - fadeOut) a = Math.min(a, (dur - local) / fadeOut);
+    return clamp(a, 0, 1);
+}
+
+function isImageActiveNow(img) { return imageAlphaAt(img, getElapsedTime()) > 0; }
+
+function drawImageOverlays(c, s) {
+    const list = state.images || [];
+    const isPreview = (c === ctx);
+    if (isPreview) imageBBoxes = [];
+    if (!list.length) return;
+    const t = getElapsedTime();
+    for (const img of list) {
+        if (!img.imgEl || !img.imgEl.complete || !img.imgEl.naturalWidth) continue;
+        const alpha = imageAlphaAt(img, t);
+        if (alpha <= 0) continue;
+        const dx = img.x * s, dy = img.y * s, dw = img.w * s, dh = img.h * s;
+        c.save();
+        c.globalAlpha = alpha;
+        c.imageSmoothingEnabled = true;
+        c.imageSmoothingQuality = 'high';
+        try { c.drawImage(img.imgEl, dx, dy, dw, dh); } catch (e) { /* aún sin decodificar */ }
+        c.restore();
+        if (isPreview) imageBBoxes.push({ id: img.id, x: dx, y: dy, w: dw, h: dh });
+    }
+}
+
+function imageCorners(bb) {
+    return [
+        { corner: 'nw', x: bb.x,         y: bb.y },
+        { corner: 'ne', x: bb.x + bb.w,  y: bb.y },
+        { corner: 'se', x: bb.x + bb.w,  y: bb.y + bb.h },
+        { corner: 'sw', x: bb.x,         y: bb.y + bb.h }
+    ];
+}
+
+// Los manejadores viven solo en el preview (nunca se exportan) y aparecen con el
+// cursor encima de la imagen, sin obligar a apuntar a cada círculo.
+function drawImageHandles(c) {
+    const id = (imageResize && imageResize.id) || (imageDrag && imageDrag.id) || hoveredImageId || selectedImageId;
+    if (!id) return;
+    const bb = imageBBoxes.find(b => b.id === id);
+    if (!bb) return;
+    c.save();
+    c.setLineDash([4, 4]);
+    c.strokeStyle = 'rgba(120,200,255,0.9)';
+    c.lineWidth = 1;
+    c.strokeRect(bb.x, bb.y, bb.w, bb.h);
+    c.setLineDash([]);
+    for (const p of imageCorners(bb)) {
+        c.beginPath();
+        c.arc(p.x, p.y, IMAGE_HANDLE_R, 0, Math.PI * 2);
+        c.fillStyle = '#ffffff';
+        c.fill();
+        c.strokeStyle = '#3a7aca';
+        c.lineWidth = 2;
+        c.stroke();
+    }
+    c.restore();
+}
+
+// La imagen de más arriba en el orden de dibujo es la que se agarra primero.
+function hitTestImage(mx, my) {
+    for (let i = imageBBoxes.length - 1; i >= 0; i--) {
+        if (hitTest(mx, my, imageBBoxes[i])) return imageBBoxes[i].id;
+    }
+    return null;
+}
+
+function hitTestImageHandle(mx, my) {
+    const id = hoveredImageId || selectedImageId;
+    if (!id) return null;
+    const bb = imageBBoxes.find(b => b.id === id);
+    if (!bb) return null;
+    for (const p of imageCorners(bb)) {
+        const dx = mx - p.x, dy = my - p.y;
+        if (dx * dx + dy * dy <= (IMAGE_HANDLE_R + 3) * (IMAGE_HANDLE_R + 3)) return { id, corner: p.corner };
+    }
+    return null;
+}
+
+const IMAGE_CORNER_CURSOR = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' };
+
+function startImageResize(id, corner, mx, my) {
+    const img = findImage(id);
+    if (!img) return;
+    imageResize = { id, corner, x: img.x, y: img.y, w: img.w, h: img.h };
+}
+
+// Escalado proporcional anclado en la esquina opuesta: la imagen no se puede deformar
+// y el cambio es solo de escala de dibujo, nunca una recompresión del archivo.
+function updateImageResize(mx, my) {
+    const r = imageResize;
+    const img = findImage(r.id);
+    if (!img || !r.h) return;
+    const ar = r.w / r.h;
+    const fixed = {
+        nw: { x: r.x + r.w, y: r.y + r.h },
+        ne: { x: r.x,       y: r.y + r.h },
+        se: { x: r.x,       y: r.y },
+        sw: { x: r.x + r.w, y: r.y }
+    }[r.corner];
+    const cx = mx / SCALE, cy = my / SCALE;
+    let w = Math.abs(cx - fixed.x);
+    let h = Math.abs(cy - fixed.y);
+    if (w / ar >= h) h = w / ar; else w = h * ar;
+    if (w < IMAGE_MIN_W) { w = IMAGE_MIN_W; h = w / ar; }
+    const k = Math.min(EXPORT_W / w, EXPORT_H / h, 1);
+    w *= k; h *= k;
+    img.w = w; img.h = h;
+    img.x = (r.corner === 'ne' || r.corner === 'se') ? fixed.x : fixed.x - w;
+    img.y = (r.corner === 'se' || r.corner === 'sw') ? fixed.y : fixed.y - h;
+    syncImagePanelValues(img);
+}
+
+function selectImage(id) {
+    selectedImageId = id;
+    if (id) tlSelection = { type: 'image', id };
+    renderImagesTrack();
+    renderMediaLibrary();
+    renderImagePanel();
+}
+
+function removeImage(id) {
+    const idx = (state.images || []).findIndex(im => im.id === id);
+    if (idx === -1) return;
+    const img = state.images[idx];
+    if (img.url && img.url.startsWith('blob:')) URL.revokeObjectURL(img.url);
+    state.images.splice(idx, 1);
+    deleteItem(STORE_VIDEOS, 'img_' + id).catch(() => {});
+    if (selectedImageId === id) selectedImageId = null;
+    if (hoveredImageId === id) hoveredImageId = null;
+    if (tlSelection && tlSelection.type === 'image' && tlSelection.id === id) tlSelection = null;
+    renderImagesTrack();
+    renderMediaLibrary();
+    renderImagePanel();
+    drawFrame();
+    scheduleAutoSave();
+}
+
+function updateImageField(id, field, value) {
+    const img = findImage(id);
+    if (!img) return;
+    const num = parseFloat(value);
+    switch (field) {
+        case 'duration':
+            img.duration = Math.max(IMAGE_MIN_DURATION, Number.isFinite(num) ? num : IMAGE_DEFAULT_DURATION);
+            break;
+        case 'timelineStart':
+            img.timelineStart = Math.max(0, Number.isFinite(num) ? num : 0);
+            break;
+        case 'x': case 'y':
+            img[field] = Number.isFinite(num) ? num : 0;   // arrastre libre: se permite salir del canvas
+            break;
+        case 'width': {
+            if (!img.natH) break;
+            const ar = img.natW / img.natH;
+            let w = clamp(Number.isFinite(num) ? num : img.w, IMAGE_MIN_W, EXPORT_W);
+            let h = w / ar;
+            if (h > EXPORT_H) { h = EXPORT_H; w = h * ar; }
+            img.w = w; img.h = h;
+            break;
+        }
+        case 'fadeIn': case 'fadeOut':
+            img[field] = clamp(Number.isFinite(num) ? num : 0, 0, IMAGE_MAX_FADE);
+            break;
+    }
+    syncImagePanelValues(img);
+    renderImagesTrack();
+    drawFrame();
+    scheduleAutoSave();
+}
+
+// ─── Panel de propiedades de la imagen seleccionada ───
+function renderImagePanel() {
+    const host = document.getElementById('imageProps');
+    if (!host) return;
+    const img = findImage(selectedImageId);
+    if (!img) {
+        host.innerHTML = '<p class="hint" style="margin:0">Selecciona una imagen en el canvas, en la capa 🖼️ del timeline o en la biblioteca para editar su duración, tamaño y fundidos.</p>';
+        return;
+    }
+    const { fadeIn, fadeOut } = getImageFades(img);
+    const clipped = (fadeIn !== (img.fadeIn || 0)) || (fadeOut !== (img.fadeOut || 0));
+    host.innerHTML =
+        '<div class="img-props-head">🖼️ ' + escapeHtml(img.name) +
+            (img.hasTransparency ? ' <span class="img-alpha-badge" title="PNG/WEBP con canal alfa: la transparencia se respeta tal cual">alfa</span>' : '') +
+        '</div>' +
+        '<p class="hint" style="margin:0 0 6px">Original ' + img.natW + '×' + img.natH + ' px · se dibuja a escala, sin recomprimir.</p>' +
+        '<div class="form-row"><label>Inicio (s)</label>' +
+            '<input type="number" step="0.1" min="0" id="imgStart_' + img.id + '" value="' + (Math.round(img.timelineStart * 100) / 100) + '" oninput="updateImageField(\'' + img.id + '\',\'timelineStart\',this.value)"></div>' +
+        '<div class="form-row"><label>Duración (s)</label>' +
+            '<input type="number" step="0.1" min="' + IMAGE_MIN_DURATION + '" id="imgDur_' + img.id + '" value="' + (Math.round(img.duration * 100) / 100) + '" oninput="updateImageField(\'' + img.id + '\',\'duration\',this.value)"></div>' +
+        '<div class="form-row"><label>Ancho (px)</label>' +
+            '<input type="range" min="' + IMAGE_MIN_W + '" max="' + EXPORT_W + '" id="imgW_' + img.id + '" value="' + Math.round(img.w) + '" oninput="updateImageField(\'' + img.id + '\',\'width\',this.value)">' +
+            '<span class="range-value" id="imgWVal_' + img.id + '">' + Math.round(img.w) + '</span></div>' +
+        '<p class="hint" style="margin:0 0 6px">Alto: <span id="imgHVal_' + img.id + '">' + Math.round(img.h) + '</span> px (proporcional). Arrastra los círculos de las esquinas en el canvas para escalarla.</p>' +
+        '<div class="form-row"><label>Pos X</label>' +
+            '<input type="number" step="1" id="imgX_' + img.id + '" value="' + Math.round(img.x) + '" oninput="updateImageField(\'' + img.id + '\',\'x\',this.value)">' +
+            '<label style="margin-left:6px">Pos Y</label>' +
+            '<input type="number" step="1" id="imgY_' + img.id + '" value="' + Math.round(img.y) + '" oninput="updateImageField(\'' + img.id + '\',\'y\',this.value)"></div>' +
+        '<div class="form-row"><label>Fade in (s)</label>' +
+            '<input type="range" min="0" max="' + IMAGE_MAX_FADE + '" step="0.05" id="imgFi_' + img.id + '" value="' + (img.fadeIn || 0) + '" oninput="updateImageField(\'' + img.id + '\',\'fadeIn\',this.value)">' +
+            '<span class="range-value" id="imgFiVal_' + img.id + '">' + (img.fadeIn || 0).toFixed(2) + '</span></div>' +
+        '<div class="form-row"><label>Fade out (s)</label>' +
+            '<input type="range" min="0" max="' + IMAGE_MAX_FADE + '" step="0.05" id="imgFo_' + img.id + '" value="' + (img.fadeOut || 0) + '" oninput="updateImageField(\'' + img.id + '\',\'fadeOut\',this.value)">' +
+            '<span class="range-value" id="imgFoVal_' + img.id + '">' + (img.fadeOut || 0).toFixed(2) + '</span></div>' +
+        '<p class="hint" id="imgFadeNote_' + img.id + '" style="margin:0 0 6px;color:#eab944' + (clipped ? '' : ';display:none') + '">Los fundidos suman más que la duración: se reparten proporcionalmente (' + fadeIn.toFixed(2) + 's / ' + fadeOut.toFixed(2) + 's).</p>' +
+        '<button class="btn btn-sm btn-danger" onclick="removeImage(\'' + img.id + '\')">🗑 Quitar imagen</button>';
+}
+
+// Refresca los valores del panel sin reconstruirlo, para no perder el foco mientras
+// se arrastra un manejador o un slider.
+function syncImagePanelValues(img) {
+    const set = (id, v) => { const el = document.getElementById(id + '_' + img.id); if (el) el.value = v; };
+    const txt = (id, v) => { const el = document.getElementById(id + '_' + img.id); if (el) el.textContent = v; };
+    set('imgStart', Math.round(img.timelineStart * 100) / 100);
+    set('imgDur', Math.round(img.duration * 100) / 100);
+    set('imgW', Math.round(img.w));
+    set('imgX', Math.round(img.x));
+    set('imgY', Math.round(img.y));
+    txt('imgWVal', Math.round(img.w));
+    txt('imgHVal', Math.round(img.h));
+    txt('imgFiVal', (img.fadeIn || 0).toFixed(2));
+    txt('imgFoVal', (img.fadeOut || 0).toFixed(2));
+    const { fadeIn, fadeOut } = getImageFades(img);
+    const note = document.getElementById('imgFadeNote_' + img.id);
+    if (note) {
+        const clipped = (fadeIn !== (img.fadeIn || 0)) || (fadeOut !== (img.fadeOut || 0));
+        note.style.display = clipped ? '' : 'none';
+        note.textContent = 'Los fundidos suman más que la duración: se reparten proporcionalmente (' + fadeIn.toFixed(2) + 's / ' + fadeOut.toFixed(2) + 's).';
+    }
+}
+
+// ─── Capa 🖼️ del timeline ───
+function renderImagesTrack() {
+    if (!trackImagesEl) return;
+    trackImagesEl.innerHTML = '';
+    (state.images || []).forEach(img => {
+        const sel = tlSelection && tlSelection.type === 'image' && tlSelection.id === img.id;
+        const block = document.createElement('div');
+        block.className = 'tl-block tl-iblock' + (sel ? ' selected' : '');
+        block.dataset.imageId = img.id;
+        block.style.left = ((img.timelineStart || 0) * tlPxPerSec) + 'px';
+        block.style.width = Math.max((img.duration || 0) * tlPxPerSec, 6) + 'px';
+        if (img.url) {
+            // Una sola miniatura a la izquierda: repetirla taparía los degradados de fundido
+            block.style.backgroundImage = 'url(' + img.url + ')';
+            block.style.backgroundSize = 'auto 100%';
+            block.style.backgroundRepeat = 'no-repeat';
+            block.style.backgroundPosition = 'left center';
+        }
+        block.title = img.name + ' · ' + formatTime(img.duration || 0);
+
+        // El fundido se ve como un degradado en los extremos del bloque, para saber
+        // dónde está sin abrir el panel de edición.
+        const { fadeIn, fadeOut } = getImageFades(img);
+        if (fadeIn > 0) {
+            const g = document.createElement('div');
+            g.className = 'tl-fade tl-fade-in';
+            g.style.width = (fadeIn * tlPxPerSec) + 'px';
+            block.appendChild(g);
+        }
+        if (fadeOut > 0) {
+            const g = document.createElement('div');
+            g.className = 'tl-fade tl-fade-out';
+            g.style.width = (fadeOut * tlPxPerSec) + 'px';
+            block.appendChild(g);
+        }
+
+        const label = document.createElement('span');
+        label.className = 'tl-blabel';
+        label.textContent = img.name + ' · ' + formatTime(img.duration || 0);
+        block.appendChild(label);
+
+        block.addEventListener('pointerdown', e => onTlBlockDown(e, { type: 'image', id: img.id }));
+        if (sel) {
+            const ti = document.createElement('div');
+            ti.className = 'trim-handle trim-in';
+            ti.title = 'Mover el inicio';
+            ti.addEventListener('pointerdown', e => startTrimDrag(e, { kind: 'image', id: img.id }, 'in'));
+            const to = document.createElement('div');
+            to.className = 'trim-handle trim-out';
+            to.title = 'Ajustar la duración';
+            to.addEventListener('pointerdown', e => startTrimDrag(e, { kind: 'image', id: img.id }, 'out'));
+            block.append(ti, to);
+        }
+        trackImagesEl.appendChild(block);
+    });
+}
+
+// ─── Biblioteca de importación (pestaña Media) ───
+function importMediaFiles(fileList) {
+    const files = Array.from(fileList || []);
+    files.forEach(f => {
+        if (isImageFile(f)) addImageFromFile(f);
+        else if (f.type.startsWith('video/')) handleOSFileUpload(f);
+    });
+    renderMediaLibrary();
+}
+
+let mediaSelection = new Set();   // claves 'clip:<id>' / 'image:<id>' marcadas en el grid
+
+function toggleMediaSelection(kind, id) {
+    const key = kind + ':' + id;
+    if (mediaSelection.has(key)) mediaSelection.delete(key); else mediaSelection.add(key);
+    renderMediaLibrary();
+}
+
+function removeSelectedMedia() {
+    if (!mediaSelection.size) return;
+    for (const key of Array.from(mediaSelection)) {
+        const [kind, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
+        if (kind === 'image') removeImage(id);
+        else if (kind === 'clip') removeClip(id);
+    }
+    mediaSelection.clear();
+    renderMediaLibrary();
+}
+
+// La biblioteca refleja lo que ya está en el proyecto: los clips de video y las
+// imágenes de la capa 🖼️. No hay un segundo almacén de archivos que mantener en sync.
+function renderMediaLibrary() {
+    const grid = document.getElementById('mediaLibraryGrid');
+    if (!grid) return;
+    const items = [];
+    state.clips.forEach((c, i) => {
+        if (!c.file) return;
+        items.push({
+            kind: 'clip', id: c.id,
+            name: c.file.name,
+            dur: getClipTrimDuration(c),
+            thumb: (c.thumbs && c.thumbs[0]) || '',
+            badge: 'Clip ' + (i + 1),
+            selected: false
+        });
+    });
+    (state.images || []).forEach(im => {
+        items.push({
+            kind: 'image', id: im.id,
+            name: im.name,
+            dur: im.duration || 0,
+            thumb: im.url,
+            badge: im.hasTransparency ? 'alfa' : 'imagen',
+            selected: selectedImageId === im.id
+        });
+    });
+
+    if (!items.length) {
+        grid.innerHTML = '<p class="hint" style="margin:0">Todavía no hay nada importado. Arrastra archivos aquí, usa <b>Import media</b> o pega una URL.</p>';
+    } else {
+        grid.innerHTML = items.map(it => {
+            const key = it.kind + ':' + it.id;
+            const checked = mediaSelection.has(key) ? ' checked' : '';
+            const thumbStyle = it.thumb
+                ? 'background-image:url(' + it.thumb + ');background-size:' + (it.kind === 'image' ? 'contain' : 'cover') + ';background-position:center;background-repeat:no-repeat'
+                : '';
+            return '<div class="media-card' + (it.selected ? ' selected' : '') + '" data-kind="' + it.kind + '" data-id="' + it.id + '"' +
+                ' onclick="onMediaCardClick(\'' + it.kind + '\',\'' + it.id + '\')">' +
+                '<div class="media-thumb" style="' + thumbStyle + '">' +
+                    '<span class="media-dur">' + formatTime(it.dur) + '</span>' +
+                    '<span class="media-kind">' + it.badge + '</span>' +
+                '</div>' +
+                '<div class="media-name" title="' + escapeHtml(it.name) + '">' +
+                    '<input type="checkbox"' + checked + ' onclick="event.stopPropagation();toggleMediaSelection(\'' + it.kind + '\',\'' + it.id + '\')">' +
+                    '<span>' + escapeHtml(it.name) + '</span>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+    }
+    const rmBtn = document.getElementById('mediaRemoveBtn');
+    if (rmBtn) rmBtn.disabled = mediaSelection.size === 0;
+}
+
+function onMediaCardClick(kind, id) {
+    if (kind === 'image') {
+        const img = findImage(id);
+        selectImage(id);
+        if (img) seekToTime(img.timelineStart || 0);
+    } else {
+        const idx = state.clips.findIndex(c => c.id === id);
+        if (idx !== -1) { selectTlElement('clip', id); seekToTime(getIntroOffset() + absClipStart(idx)); }
+    }
+}
+
+function switchMediaSub(name) {
+    document.querySelectorAll('.subpanel[data-sub]').forEach(p => p.classList.toggle('active', p.dataset.sub === name));
+    document.querySelectorAll('.subtab[data-sub]').forEach(b => b.classList.toggle('active', b.dataset.sub === name));
+    try { localStorage.setItem('vre_media_sub', name); } catch (e) { /* almacenamiento no disponible */ }
+    if (name === 'library') renderMediaLibrary();
+}
+
+function restoreMediaSub() {
+    let name = null;
+    try { name = localStorage.getItem('vre_media_sub'); } catch (e) { /* ignorar */ }
+    switchMediaSub(document.querySelector('.subpanel[data-sub="' + name + '"]') ? name : 'library');
+}
+
 function drawFrame() {
     if (isInIntro) {
         drawIntroFrame(ctx, SCALE);
+        drawImageOverlays(ctx, SCALE);
+        if (!isPlaying && !isExporting) drawImageHandles(ctx);
         return;
     }
 
@@ -2061,6 +2641,9 @@ function drawFrame() {
 
     drawBlurBars(ctx, SCALE);
     drawBarsAndPercentage(ctx, SCALE);
+    // Las imágenes van encima del video y debajo de los textos: el título, la
+    // numeración y las barras siguen leyéndose sobre ellas.
+    drawImageOverlays(ctx, SCALE);
 
     // Save bboxes only during preview
     titleBBoxes = [];
@@ -2079,6 +2662,8 @@ function drawFrame() {
     // Style engine overlays
     if (isInOutro) {
         drawOutroFrame(ctx, SCALE);
+        drawImageOverlays(ctx, SCALE);
+        if (!isExporting) drawImageHandles(ctx);
         return;
     }
     drawFreezeOverlays(ctx, SCALE);
@@ -2154,6 +2739,9 @@ function drawFrame() {
     if (!isExporting && state.shortsOverlay && state.shortsOverlay.enabled && state.shortsOverlay.visible) {
         drawShortsOverlay(ctx, SCALE);
     }
+
+    // Marco y manejadores de la imagen activa: solo preview, nunca se exportan
+    if (!isPlaying && !isExporting) drawImageHandles(ctx);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2305,6 +2893,15 @@ canvas.addEventListener('mousedown', (e) => {
     const pos = canvasMousePos(e);
     const mx = pos.x, my = pos.y;
 
+    // Los manejadores de esquina van primero: son diana pequeña y explícita.
+    const handle = hitTestImageHandle(mx, my);
+    if (handle) {
+        selectImage(handle.id);
+        startImageResize(handle.id, handle.corner, mx, my);
+        canvas.style.cursor = IMAGE_CORNER_CURSOR[handle.corner];
+        return;
+    }
+
     if (hitTest(mx, my, introCaptionBBox)) {
         dragging = 'introCaption';
         const cx = (state.intro.captionPos?.x ?? 0.5) * PREVIEW_W;
@@ -2371,6 +2968,12 @@ canvas.addEventListener('mousedown', (e) => {
         } else if (hitTest(mx, my, numberBBox)) {
             dragging = 'number';
             dragOffset = { x: mx - state.layout.numberPos.x * SCALE, y: my - state.layout.numberPos.y * SCALE };
+        } else if (hitTestImage(mx, my)) {
+            const imgId = hitTestImage(mx, my);
+            const img = findImage(imgId);
+            selectImage(imgId);
+            // Arrastre libre: la imagen puede salirse del canvas sin restricción.
+            imageDrag = { id: imgId, x: img.x, y: img.y, startX: mx, startY: my };
         } else if (state.clips.length > 0) {
             // Pan video
             dragging = 'video';
@@ -2385,6 +2988,22 @@ canvas.addEventListener('mousedown', (e) => {
 canvas.addEventListener('mousemove', (e) => {
     const pos = canvasMousePos(e);
     const mx = pos.x, my = pos.y;
+
+    if (imageResize) {
+        updateImageResize(mx, my);
+        drawFrame();
+        return;
+    }
+    if (imageDrag) {
+        const img = findImage(imageDrag.id);
+        if (img) {
+            img.x = imageDrag.x + (mx - imageDrag.startX) / SCALE;
+            img.y = imageDrag.y + (my - imageDrag.startY) / SCALE;
+            syncImagePanelValues(img);
+        }
+        drawFrame();
+        return;
+    }
 
     if (dragging) {
         if (dragging === 'introCaption') {
@@ -2490,7 +3109,15 @@ canvas.addEventListener('mousemove', (e) => {
         }
         drawFrame();
     } else {
-        if (hitTest(mx, my, introCaptionBBox) || hitTitleIndex(mx, my) !== -1 || hitTestNumber(mx, my) !== -1 || hitTest(mx, my, numberBBox) || hitTestBlurBar(mx, my) !== -1 || hitTest(mx, my, clipCaptionsBBox) || hitTest(mx, my, voCaptionBBox) || hitTest(mx, my, outroCaptionBBox)) {
+        // Basta con estar sobre la imagen para ver sus 4 manejadores; no hay que
+        // apuntar a cada círculo.
+        const overHandle = hitTestImageHandle(mx, my);
+        const overImage = hitTestImage(mx, my);
+        const nextHover = overHandle ? overHandle.id : overImage;
+        if (nextHover !== hoveredImageId) { hoveredImageId = nextHover; drawFrame(); }
+        if (overHandle) {
+            canvas.style.cursor = IMAGE_CORNER_CURSOR[overHandle.corner];
+        } else if (hitTest(mx, my, introCaptionBBox) || hitTitleIndex(mx, my) !== -1 || hitTestNumber(mx, my) !== -1 || hitTest(mx, my, numberBBox) || hitTestBlurBar(mx, my) !== -1 || hitTest(mx, my, clipCaptionsBBox) || hitTest(mx, my, voCaptionBBox) || hitTest(mx, my, outroCaptionBBox) || overImage) {
             canvas.style.cursor = 'grab';
         } else {
             canvas.style.cursor = 'default';
@@ -2498,7 +3125,17 @@ canvas.addEventListener('mousemove', (e) => {
     }
 });
 
+function endImageCanvasDrag() {
+    if (!imageResize && !imageDrag) return false;
+    imageResize = null;
+    imageDrag = null;
+    renderImagePanel();
+    scheduleAutoSave();
+    return true;
+}
+
 canvas.addEventListener('mouseup', () => {
+    endImageCanvasDrag();
     if (dragging) scheduleAutoSave();
     dragging = null;
     canvasGuideY = null;
@@ -2506,6 +3143,8 @@ canvas.addEventListener('mouseup', () => {
     canvas.style.cursor = 'default';
 });
 canvas.addEventListener('mouseleave', () => {
+    endImageCanvasDrag();
+    hoveredImageId = null;
     if (dragging) scheduleAutoSave();
     dragging = null;
     canvasGuideY = null;
@@ -2566,7 +3205,7 @@ function getTimelineScaleDuration() {
         const dur = Math.max(0, (t.trimEnd || 0) - (t.trimStart || 0));
         return Math.max(max, (t.timelineStart || 0) + dur);
     }, 0);
-    const total = getIntroOffset() + Math.max(clipsEnd, audioEnd) + getOutroOffset();
+    const total = Math.max(getIntroOffset() + Math.max(clipsEnd, audioEnd) + getOutroOffset(), getImagesEnd());
     state.timelineScaleDuration = Math.max(state.timelineScaleDuration || 0, total);
     return state.timelineScaleDuration;
 }
@@ -2688,6 +3327,12 @@ function startTrimDrag(event, target, edge) {
         drag.origTrimStart = track.trimStart;
         drag.origTrimEnd = track.trimEnd;
         drag.origStart = track.timelineStart || 0;
+    } else if (target.kind === 'image') {
+        const img = findImage(target.id);
+        if (!img) return;
+        tlSelection = { type: 'image', id: img.id };
+        drag.origStart = img.timelineStart || 0;
+        drag.origDuration = img.duration || 0;
     } else {
         return;
     }
@@ -2755,13 +3400,42 @@ function updateTrimDrag(event) {
             const dur = Math.max(0, (track.trimEnd || 0) - (track.trimStart || 0)) || track.duration || 1;
             blockEl.style.width = Math.max(dur * tlPxPerSec, 5) + 'px';
         }
+    } else if (drag.kind === 'image') {
+        const img = findImage(drag.id);
+        if (!img) return;
+        if (drag.edge === 'in') {
+            // El borde izquierdo sigue al cursor y el derecho queda fijo
+            const end = drag.origStart + drag.origDuration;
+            const nt = clamp(drag.origStart + delta, 0, end - IMAGE_MIN_DURATION);
+            img.timelineStart = nt;
+            img.duration = end - nt;
+        } else {
+            img.duration = Math.max(IMAGE_MIN_DURATION, drag.origDuration + delta);
+        }
+        const blockEl = trackImagesEl && trackImagesEl.querySelector('[data-image-id="' + drag.id + '"]');
+        if (blockEl) {
+            blockEl.style.left = ((img.timelineStart || 0) * tlPxPerSec) + 'px';
+            blockEl.style.width = Math.max((img.duration || 0) * tlPxPerSec, 6) + 'px';
+            const lbl = blockEl.querySelector('.tl-blabel');
+            if (lbl) lbl.textContent = img.name + ' · ' + formatTime(img.duration || 0);
+        }
+        syncImagePanelValues(img);
+        updateTimeDisplay();
     }
 }
 
 function finishTrimDrag() {
     if (!activeTrimDrag) return;
+    const wasImage = activeTrimDrag.kind === 'image';
     activeTrimDrag = null;
     document.body.classList.remove('trimming-clip');
+    if (wasImage) {
+        // La capa de imágenes no es secuencial: no hay hueco que cerrar
+        renderImagesTrack();
+        drawFrame();
+        scheduleAutoSave();
+        return;
+    }
     // Cerrar el hueco temporal dejado por el trim-in (timeline secuencial)
     repackTimelineClips();
     scheduleAutoSave();
@@ -2939,6 +3613,7 @@ function fitZoomTimeline() {
 function refreshTL() {
     syncTlWidths();
     renderTimelineClips();
+    renderImagesTrack();
     renderAudioTracks();
     updateTimelineUI();
 }
@@ -3001,6 +3676,7 @@ function snapTime(t, exclude) {
     const candidates = [0, getElapsedTime()];
     state.clips.forEach((c, i) => { candidates.push(getIntroOffset() + absClipStart(i), getIntroOffset() + absClipStart(i) + getClipTrimDuration(c)); });
     state.audioTracks.forEach(tr => { candidates.push(tr.timelineStart || 0, (tr.timelineStart || 0) + (tr.trimEnd - tr.trimStart)); });
+    (state.images || []).forEach(im => { candidates.push(im.timelineStart || 0, (im.timelineStart || 0) + (im.duration || 0)); });
     let best = t, bestD = 8 / tlPxPerSec;
     for (const cand of candidates) {
         if (exclude !== undefined && Math.abs(cand - exclude) < 1e-6) continue;
@@ -3019,7 +3695,9 @@ function selectTlElement(type, id) {
     } else if (type === 'audio') {
         // solo selección visual
     }
+    if (type !== 'image' && selectedImageId) { selectedImageId = null; renderImagePanel(); renderMediaLibrary(); }
     renderTimelineClips();
+    renderImagesTrack();
     renderAudioTracks();
 }
 
@@ -3033,6 +3711,10 @@ function onTlBlockDown(e, target) {
     if (target.type === 'clip') {
         const idx = state.clips.findIndex(c => c.id === target.id);
         if (idx !== -1 && !isPlaying) { currentClipIndex = idx; renderBlurBarsList(); }
+    } else if (target.type === 'image') {
+        selectedImageId = target.id;
+        renderImagePanel();
+        renderMediaLibrary();
     }
     updateTlSelectionVisuals();
 
@@ -3040,6 +3722,7 @@ function onTlBlockDown(e, target) {
     if (target.type === 'clip') drag.index = state.clips.findIndex(c => c.id === target.id);
     else if (target.type === 'audio') { const tr = state.audioTracks.find(t => t.id === target.id); drag.origStart = tr ? tr.timelineStart : 0; }
     else if (target.type === 'vo') { const clip = state.clips.find(c => c.id === target.id); drag.origOffset = clip && clip.vo ? (clip.vo.offset || 0) : 0; }
+    else if (target.type === 'image') { const im = findImage(target.id); drag.origStart = im ? (im.timelineStart || 0) : 0; }
     tlDrag = drag;
     // Capturar puntero en el bloque (no en un hijo) para recibir moves incluso fuera
     try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch (err) {}
@@ -3053,6 +3736,7 @@ function updateTlSelectionVisuals() {
     if (tlSelection.type === 'clip') sel = trackVideoEl && trackVideoEl.querySelector('[data-clip-id="' + tlSelection.id + '"]');
     else if (tlSelection.type === 'audio') sel = trackAudioEl && trackAudioEl.querySelector('[data-track-id="' + tlSelection.id + '"]');
     else if (tlSelection.type === 'vo') sel = trackFxEl && trackFxEl.querySelector('[data-vo-id="' + tlSelection.id + '"]');
+    else if (tlSelection.type === 'image') sel = trackImagesEl && trackImagesEl.querySelector('[data-image-id="' + tlSelection.id + '"]');
     if (sel) sel.classList.add('selected');
 }
 
@@ -3077,6 +3761,14 @@ function updateTlDrag(e) {
         tr.timelineStart = nt;
         const el = trackAudioEl ? trackAudioEl.querySelector('[data-track-id="' + tlDrag.id + '"]') : null;
         if (el) el.style.left = (nt * tlPxPerSec) + 'px';
+    } else if (tlDrag.type === 'image') {
+        const im = findImage(tlDrag.id);
+        if (!im) return;
+        const nt = Math.max(0, snapTime(Math.max(0, tlDrag.origStart + dx / tlPxPerSec), im.timelineStart || 0));
+        im.timelineStart = nt;
+        const el = trackImagesEl ? trackImagesEl.querySelector('[data-image-id="' + tlDrag.id + '"]') : null;
+        if (el) el.style.left = (nt * tlPxPerSec) + 'px';
+        syncImagePanelValues(im);
     } else if (tlDrag.type === 'vo') {
         const clip = state.clips.find(c => c.vo && c.id === tlDrag.id);
         if (!clip) return;
@@ -3146,12 +3838,17 @@ function endTlDrag(e) {
     } else if (drag.type === 'vo' && drag.moved) {
         renderClipsList();
         scheduleAutoSave();
+    } else if (drag.type === 'image' && drag.moved) {
+        drawFrame();
+        scheduleAutoSave();
     } else if (!drag.moved) {
         // Clic simple sin arrastre
         if (drag.type === 'clip') seekToTime(getIntroOffset() + absClipStart(state.clips.findIndex(c => c.id === drag.id)));
+        else if (drag.type === 'image') { const im = findImage(drag.id); if (im) seekToTime(im.timelineStart || 0); }
     }
     // Re-render completo para mostrar trim handles de la selección
     renderTimelineClips();
+    renderImagesTrack();
     renderAudioTracks();
     // Liberar pointer capture
     try { e.target.releasePointerCapture?.(e.pointerId); } catch (err) {}
@@ -3375,6 +4072,8 @@ function splitSelectedTl() {
         renderAudioTracks();
         renderTimelineClips();
         scheduleAutoSave();
+    } else if (tlSelection.type === 'image') {
+        alert('Las imágenes no se dividen: ajusta su duración con los handles del bloque o el campo Duración.');
     }
 }
 
@@ -3382,8 +4081,10 @@ function deleteSelectedTl() {
     if (isExporting || !tlSelection) return;
     if (tlSelection.type === 'clip') removeClip(tlSelection.id);
     else if (tlSelection.type === 'audio') removeAudioTrack(tlSelection.id);
+    else if (tlSelection.type === 'image') removeImage(tlSelection.id);
     tlSelection = null;
     renderTimelineClips();
+    renderImagesTrack();
     renderAudioTracks();
 }
 
@@ -3813,11 +4514,13 @@ let exportAudioDest = null;  // recording destination for the current export
 function drawExportFrame() {
     if (isInIntro) {
         drawIntroFrame(exportCtx, 1);
+        drawImageOverlays(exportCtx, 1);
         updateExportProgress();
         return true;
     }
     if (isInOutro) {
         drawOutroFrame(exportCtx, 1);
+        drawImageOverlays(exportCtx, 1);
         updateExportProgress();
         return true;
     }
@@ -3830,6 +4533,7 @@ function drawExportFrame() {
     if (!drew && exportHoldCanvas) exportCtx.drawImage(exportHoldCanvas, 0, 0);
     drawBlurBars(exportCtx, 1);
     drawBarsAndPercentage(exportCtx, 1);
+    drawImageOverlays(exportCtx, 1);
     state.title.lines.forEach((line, i) => {
         drawTitleLine(exportCtx, line, getTitlePos(i), getTitleLineFont(i), getTitleLineSize(i), state.title.textColor, 1);
     });
@@ -4565,6 +5269,7 @@ function addClip() {
 }
 
 function handleOSFileUpload(file) {
+    if (isImageFile(file)) return addImageFromFile(file);
     const id = addClip();
     handleFileUpload(id, file);
 }
@@ -5388,7 +6093,7 @@ document.body.addEventListener('dragover', e => { e.preventDefault(); document.b
 document.body.addEventListener('dragleave', e => { e.preventDefault(); if(!e.clientX && !e.clientY) document.body.classList.remove('drag-over-body'); });
 document.body.addEventListener('drop', e => {
     e.preventDefault(); document.body.classList.remove('drag-over-body');
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('video/'));
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('video/') || isImageFile(f));
     files.forEach(f => handleOSFileUpload(f));
 });
 
@@ -6813,12 +7518,17 @@ function syncUIFromState() {
     syncIntroUI();
     syncStyleEngineUI();
     renderAudioTracks();
+    renderImagesTrack();
+    renderMediaLibrary();
+    renderImagePanel();
     renderClipsList();
     updateTimeDisplay();
 }
 
 // Init defaults and load saved project
 try { restoreTab(); } catch(e) { console.error('restoreTab', e); }
+try { restoreMediaSub(); } catch(e) { console.error('restoreMediaSub', e); }
+try { renderMediaLibrary(); renderImagePanel(); } catch(e) { console.error('initMediaLibrary', e); }
 // Por defecto, exportar en MP4 (WebCodecs, máxima calidad) si el navegador lo soporta
 try { if (webCodecsSupported()) document.getElementById('exportFormat').value = 'mp4'; } catch(e) { /* ignorar */ }
 try { migrateTitleState(); renderTitleLineInputs(); } catch(e) { console.error('initTitleLines', e); }
@@ -6835,7 +7545,7 @@ try { updateOutro(); } catch(e) { console.error('updateOutro', e); }
 requestAnimationFrame(() => { try { refreshTL(); } catch(e) { console.error('refreshTL', e); } });
 setTimeout(() => { try { refreshTL(); } catch(e) { console.error('refreshTL2', e); } }, 200);
 if (tlScroll) tlScroll.addEventListener('scroll', drawRuler);
-window.addEventListener('resize', () => { syncTlWidths(); renderTimelineClips(); renderAudioTracks(); });
+window.addEventListener('resize', () => { syncTlWidths(); renderTimelineClips(); renderImagesTrack(); renderAudioTracks(); });
 // ResizeObserver para redibujar la regla cuando el contenedor cambie de tamaño
 if (window.ResizeObserver && tlScroll) {
     new ResizeObserver(() => { drawRuler(); }).observe(tlScroll);

@@ -55,6 +55,47 @@
         <!-- ═══ PESTAÑA: MEDIA ═══ -->
         <div class="tab-panel active" data-tab="media">
 
+            <!-- Subpestañas: importación (Media) · edición individual (Clips) -->
+            <div class="subtabs">
+                <button class="subtab active" data-sub="library" onclick="switchMediaSub('library')">📚 Media</button>
+                <button class="subtab" data-sub="clips" onclick="switchMediaSub('clips')">🎞️ Clips</button>
+            </div>
+
+            <!-- ─── SUBPANEL: MY MEDIA (biblioteca de importación) ─── -->
+            <div class="subpanel active" data-sub="library">
+                <div class="section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <h2>📚 My media</h2>
+                        <span class="toggle">▼</span>
+                    </div>
+                    <div class="section-body">
+                        <div class="media-import-bar">
+                            <input type="file" accept="video/*,image/jpeg,image/png,image/webp" multiple id="mediaImportInput"
+                                   style="display:none" onchange="importMediaFiles(this.files); this.value='';">
+                            <button class="btn btn-primary btn-sm" onclick="document.getElementById('mediaImportInput').click()">📥 Import media</button>
+                            <button class="btn btn-sm" onclick="openImportDialog()" title="Pegar una URL de TikTok / YouTube / Instagram">🔗 URL</button>
+                            <div style="flex:1"></div>
+                            <button class="btn btn-sm btn-danger" id="mediaRemoveBtn" disabled onclick="removeSelectedMedia()" title="Quitar lo marcado">🗑</button>
+                        </div>
+                        <div class="media-dropzone" id="mediaDropzone" onclick="document.getElementById('mediaImportInput').click()">
+                            Arrastra aquí videos o imágenes (JPG · PNG · WEBP), o haz clic para elegirlos
+                        </div>
+                        <div class="media-grid" id="mediaLibraryGrid"></div>
+                        <p class="hint" style="margin-top:6px">Las imágenes entran en la capa 🖼️ del timeline con <b>5 s</b> por defecto, encima del video y respetando la transparencia del PNG.</p>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <h2>🖼️ Imagen seleccionada</h2>
+                        <span class="toggle">▼</span>
+                    </div>
+                    <div class="section-body" id="imageProps"></div>
+                </div>
+            </div>
+
+            <!-- ─── SUBPANEL: CLIPS (edición individual) ─── -->
+            <div class="subpanel" data-sub="clips">
             <!-- CLIPS SECTION -->
             <div class="section">
                 <div class="section-header" onclick="toggleSection(this)">
@@ -73,6 +114,7 @@
                     </div>
                     <p class="hint" style="margin-top:6px">El export final es 1080×1920 a <b>60 FPS CFR</b>. Analiza los clips y normaliza los de 24/25/30 fps o VFR: se interpolan con estimación de movimiento en vez de duplicar frames.</p>
                 </div>
+            </div>
             </div>
         </div>
 
@@ -771,6 +813,7 @@
     <div class="tl-main">
         <div class="tl-left">
             <div class="tl-corner"></div>
+            <div class="tl-label tl-lbl-images"><span>🖼️ Imágenes</span></div>
             <div class="tl-label tl-lbl-video"><span>🎞️ Vídeo</span></div>
             <div class="tl-label tl-lbl-audio"><span>🎵 Audio</span></div>
             <div class="tl-label tl-lbl-fx"><span>✨ FX</span></div>
@@ -779,6 +822,7 @@
         <div class="tl-right">
             <div class="tl-scroll" id="tlScroll">
                 <div class="tl-inner" id="tlInner">
+                    <div class="tl-track tl-track-images" id="trackImages"></div>
                     <div class="tl-track tl-track-video" id="trackVideo"></div>
                     <div class="tl-track tl-track-audio" id="trackAudio"></div>
                     <div class="tl-track tl-track-fx" id="trackFx"></div>
@@ -824,10 +868,10 @@
 <!-- Diálogo Importar -->
 <div class="overlay-screen hidden" id="importDialog">
     <div class="tl-dialog">
-        <h3>📥 Importar clip</h3>
+        <h3>📥 Importar media</h3>
         <div class="form-row">
             <label>Archivo</label>
-            <input type="file" accept="video/*" id="importFileInput" onchange="if(this.files[0]){handleOSFileUpload(this.files[0]); closeImportDialog(); this.value='';}" style="font-size:11px">
+            <input type="file" accept="video/*,image/jpeg,image/png,image/webp" multiple id="importFileInput" onchange="if(this.files.length){importMediaFiles(this.files); closeImportDialog(); this.value='';}" style="font-size:11px">
         </div>
         <div class="form-row">
             <label>URL</label>
