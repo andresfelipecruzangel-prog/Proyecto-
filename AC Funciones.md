@@ -2,7 +2,6 @@
 
 Planteamiento funcional para ampliar **Video Ranking Editor V2** con un apartado de importación dedicado y soporte de imágenes (con fade y redimensionamiento) como nuevo tipo de elemento en el timeline.
 
-> Repositorio: https://github.com/andresfelipecruzangel-prog/Proyecto-
 
 ## ¿Qué cambia?
 
