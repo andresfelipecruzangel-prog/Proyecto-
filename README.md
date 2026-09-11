@@ -16,6 +16,8 @@ Permite montar un video de ranking a partir de varios clips cortos, con títulos
   - `POST /api/normalize?base=<fps>` — aterriza a CFR y/o interpola hasta 60 fps.
   - `POST /api/validate` — veredicto del render final.
 - **Importación de clips**: arrastra videos desde el PC al navegador o úsalos mediante el botón de subida.
+- **Biblioteca de media**: la pestaña 🎞️ Media se divide en dos — **Media** (importación: arrastre, botón o URL, con grid de miniaturas) y **Clips** (la edición individual de siempre).
+- **Imágenes como capa propia**: importa JPG/PNG/WEBP y se colocan en la capa 🖼️ del timeline, **encima del video**, con **5 s** de duración por defecto (editable). Se arrastran libremente por el canvas, se escalan de forma **proporcional** con los cuatro manejadores de esquina (de 160 px de ancho hasta 1080×1920, siempre a escala de dibujo, sin recomprimir el original) y admiten **fade in / fade out independientes** de 0 a 1 s, que se reparten proporcionalmente si juntos superan la duración. La **transparencia del PNG** se respeta y se multiplica con la opacidad del fundido.
 - **Orden y recorte**: cambia el orden de los clips y define el inicio/fin de cada uno.
 - **Recorte visual en timeline**: selecciona un clip y arrastra sus handles laterales para ajustar Trim In/Trim Out en tiempo real, con una duración mínima de 0,5 segundos.
 - **Título personalizable**: dos líneas de texto, fuente, tamaño, color y posición arrastrable.
@@ -50,7 +52,7 @@ Permite montar un video de ranking a partir de varios clips cortos, con títulos
 4. Pulsa **Agregar clip** y, dentro de la tarjeta del clip, importa el video de cualquiera de estas formas:
    - Pega una URL de **TikTok / YouTube / Instagram** en el campo **Pega URL de TikTok...** y pulsa **📥 URL**.
    - Arrastra archivos de video sobre la ventana o pulsa **Subir video**.
-5. Configura la edición desde el panel izquierdo, organizado en **pestañas por categoría** (estilo editor de video): 🎞️ **Media** (clips), ✏️ **Textos** (título, textos en pantalla, números), 🎨 **Estilo** (barras, captions, overlay Shorts), 🎬 **Estructura** (intro y outro), 🔊 **Audio** (voz en off, sonido, mezclador, censura), ❄️ **Efectos** (momento clave) y 📋 **Presets**. La pestaña activa se recuerda entre sesiones.
+5. Configura la edición desde el panel izquierdo, organizado en **pestañas por categoría** (estilo editor de video): 🎞️ **Media** (biblioteca de importación y clips), ✏️ **Textos** (título, textos en pantalla, números), 🎨 **Estilo** (barras, captions, overlay Shorts), 🎬 **Estructura** (intro y outro), 🔊 **Audio** (voz en off, sonido, mezclador, censura), ❄️ **Efectos** (momento clave) y 📋 **Presets**. La pestaña activa se recuerda entre sesiones.
 6. Previsualiza el resultado en el canvas central (se ajusta automáticamente al espacio disponible).
 7. El proyecto se guarda automáticamente en el navegador; también puedes usar 💾 Guardar o 🗑 Borrar en la barra superior.
 8. Cuando esté listo, pulsa **📦 Exportar** (barra superior) y espera a que termine la renderización.

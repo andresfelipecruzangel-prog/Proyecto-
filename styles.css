@@ -684,3 +684,74 @@ body.trimming-clip { user-select: none; }
 .fps-validation-panel .fvp-close { background: none; border: none; color: #888; cursor: pointer; font-size: 14px; }
 .fps-validation-panel ul { margin: 0; padding: 0 0 0 4px; list-style: none; }
 .fps-validation-panel li { margin: 4px 0; line-height: 1.35; }
+
+/* ====== SUBPESTAÑAS (Media / Clips) ====== */
+.subtabs {
+    display: flex; gap: 4px; margin-bottom: 8px;
+    border-bottom: 1px solid #2a2a4a; padding-bottom: 6px;
+}
+.subtab {
+    flex: 1; padding: 5px 8px; font-size: 11px; cursor: pointer;
+    background: #16162e; color: #8a8ab0;
+    border: 1px solid #2a2a4a; border-radius: 5px;
+}
+.subtab:hover { color: #c8c8e8; border-color: #3a3a6a; }
+.subtab.active { background: #2a2a5a; color: #fff; border-color: #5a5aff; }
+.subpanel { display: none; }
+.subpanel.active { display: block; }
+
+/* ====== BIBLIOTECA DE MEDIA ====== */
+.media-import-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.media-dropzone {
+    border: 1px dashed #3a3a6a; border-radius: 6px; padding: 10px;
+    text-align: center; font-size: 11px; color: #7a7aa0; background: #14142c;
+    margin-bottom: 8px;
+}
+body.drag-over-body .media-dropzone { border-color: #5a5aff; color: #c8c8e8; background: #1c1c3c; }
+.media-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 6px;
+}
+.media-card {
+    background: #16162e; border: 1px solid #2a2a4a; border-radius: 6px;
+    overflow: hidden; cursor: pointer;
+}
+.media-card:hover { border-color: #5a5a9a; }
+.media-card.selected { border-color: #5a9ada; box-shadow: 0 0 0 1px #5a9ada; }
+.media-thumb {
+    position: relative; height: 58px; background-color: #0d0d1c;
+    background-size: cover; background-position: center;
+}
+.media-dur, .media-kind {
+    position: absolute; bottom: 3px; font-size: 8px; line-height: 11px;
+    padding: 0 3px; border-radius: 3px; background: rgba(0,0,0,0.72); color: #e8e8ff;
+}
+.media-dur { right: 3px; font-variant-numeric: tabular-nums; }
+.media-kind { left: 3px; color: #b8d8ff; }
+.media-name {
+    display: flex; align-items: center; gap: 4px; padding: 3px 4px;
+    font-size: 9px; color: #b0b0d0;
+}
+.media-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-name input[type="checkbox"] { flex-shrink: 0; margin: 0; }
+
+/* ====== PANEL DE LA IMAGEN SELECCIONADA ====== */
+.img-props-head { font-size: 12px; color: #e0e0ff; margin-bottom: 4px; }
+.img-alpha-badge {
+    font-size: 9px; padding: 0 4px; border-radius: 3px;
+    background: #1d3850; color: #8fd0ff; border: 1px solid #3a6a9a;
+}
+
+/* ====== CAPA DE IMÁGENES EN EL TIMELINE ====== */
+.tl-label.tl-lbl-images { height: 34px; }
+.tl-track-images { height: 34px; background: #17172e; }
+.tl-iblock {
+    background-color: #2e2350; border: 2px solid #a07ad8;
+    background-size: auto 100%; background-repeat: no-repeat; background-position: left center;
+}
+.tl-iblock:hover { border-color: #c0a0f0; }
+.tl-iblock.selected { border-color: #fff; box-shadow: 0 0 0 2px #8a5ad8; z-index: 3; }
+.tl-iblock.selected .trim-handle { height: 32px; }
+/* Degradado en los extremos: muestra dónde entra y sale el fundido */
+.tl-fade { position: absolute; top: 0; bottom: 0; pointer-events: none; }
+.tl-fade-in { left: 0; background: linear-gradient(90deg, rgba(10,10,24,0.92), rgba(10,10,24,0)); }
+.tl-fade-out { right: 0; background: linear-gradient(270deg, rgba(10,10,24,0.92), rgba(10,10,24,0)); }
